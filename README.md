@@ -1,26 +1,102 @@
-# Backend — Spring Boot
+# Backend — Node.js + Express
 
-기본 패키지: com.needit
+NEEDIT의 백엔드 서버입니다.
 
-- domain/problem: 불편함·공감·댓글
-- domain/idea: AI 아이디어 생성
-- domain/project: 프로젝트 선택·진행 상태·베타 링크
-- domain/feedback: 피드백
-- domain/user: 사용자
-- 각 도메인의 controller: 요청 처리 / service: 비즈니스 로직 / repository: DB 접근 / entity: 데이터 모델 / dto: 요청·응답 객체
-- global/config: CORS 등 공통 설정
-- global/exception: 예외 처리
-- global/response: 공통 응답
-- src/main/resources: application.yml 등
-- src/test/java/com/needit: 테스트
+## 기술 스택
+
+- Runtime: Node.js
+- Framework: Express
+- Language: JavaScript
+- Database: PostgreSQL (Supabase 연동 예정)
+- AI: LLM API (SW 해결 가능성 분석)
+- Deployment: Render
+
+## 폴더 구조
+
+```text
+needit-backend/
+├── src/
+│   ├── app.js
+│   ├── routes/
+│   ├── controllers/
+│   ├── services/
+│   ├── middleware/
+│   └── config/
+├── .env.example
+├── .gitignore
+├── package.json
+└── README.md
+```
+
+- `src/app.js`: Express 서버 실행 및 공통 설정
+- `routes`: API 주소 정의
+- `controllers`: HTTP 요청 및 응답 처리
+- `services`: 핵심 비즈니스 로직, AI 연동
+- `middleware`: 로그인 인증 및 오류 처리
+- `config`: DB 연결 및 환경 설정
+
+※ 폴더는 개발 진행에 따라 추가합니다.
 
 ## 초기 설정
 
-Spring Initializr에서 버전을 팀과 합의하여 프로젝트를 생성하고 이 폴더에 합치세요.
-기본 패키지는 com.needit, 추천 시작 의존성은 Spring Web, Validation, Spring Data JPA 및 선택한 DB 드라이버입니다.
-Gradle 선택 시 wrapper도 포함하세요. 설정 완료 후 Windows에서는 ./gradlew.bat bootRun으로 실행합니다.
-현재는 빌드 파일, wrapper 및 Application 클래스가 없어 실행되지 않습니다.
+Node.js 설치 후 프로젝트 폴더에서 다음 명령어를 실행합니다.
 
-.env.example은 변수명 참고용입니다. Spring Boot는 .env를 자동으로 읽지 않으므로 실행 환경변수 또는 별도 설정으로 연결하세요.
-DB 예시는 PostgreSQL 기준입니다. AI_API_KEY도 서버 설정에서 직접 연결해야 하는 사용자 정의 변수입니다.
-프론트의 localhost:5173을 허용하는 CORS 또는 프론트 개발 프록시 설정을 추가하세요.
+```bash
+npm install
+npm run dev
+```
+
+서버 기본 주소:
+
+`http://localhost:4000`
+
+서버 정상 작동 확인:
+
+`GET http://localhost:4000/health`
+
+정상 응답:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+## 주요 구현 예정 기능
+
+1. 불편함 등록 및 조회
+2. 공감 기능
+3. AI 기반 SW 해결 가능성 분류
+4. 개발 프로젝트 등록 및 진행 상태 관리
+5. 베타테스트 링크와 사용자 피드백
+
+## 환경변수
+
+`.env.example`을 참고하여 로컬 `.env` 파일을 생성합니다.
+
+- `PORT`: 서버 포트
+- `FRONTEND_URL`: React 프론트엔드 주소
+- `SUPABASE_URL`: Supabase 프로젝트 URL
+- `SUPABASE_PUBLISHABLE_KEY`: Supabase 공개용 키
+- `OPENAI_API_KEY`: AI API 키
+
+비밀 키가 포함된 `.env` 파일은 GitHub에 업로드하지 않습니다.
+
+## 프론트엔드 연동
+
+프론트엔드는 React + Vite를 사용합니다.
+
+개발 환경의 프론트엔드 기본 주소는 `http://localhost:5173`이며, 백엔드에서는 CORS 설정을 통해 해당 주소를 허용합니다.
+
+프론트엔드는 HTTP API를 통해 백엔드와 JSON 데이터를 주고받습니다.
+
+## 배포
+
+Render Web Service를 통해 배포합니다.
+
+- Language: Node
+- Build Command: `npm install`
+- Start Command: `npm start`
+- Region: Singapore
+
+실제 배포 주소는 Render에서 생성된 URL을 사용합니다.
