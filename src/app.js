@@ -3,6 +3,8 @@ const express = require("express");
 
 const app = express();
 
+app.use(express.json());
+
 app.get("/", (req, res) => {
   res.send("NEEDIT Backend Running!");
 });
@@ -12,6 +14,31 @@ app.get("/health", (req, res) => {
 });
 
 const PORT = process.env.PORT || 4000;
+
+
+const supabase = require("./config/supabase");
+
+app.get("/db-test", async (req, res) => {
+  const { data, error } = await supabase
+    .from("problems")
+    .select("*")
+    .limit(1);
+
+  if (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+
+  res.json({
+    ok: true,
+    data: data
+  });
+});
+const problemRoutes = require("./routes/problems");
+
+app.use("/api/problems", problemRoutes);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on ${PORT}`);
