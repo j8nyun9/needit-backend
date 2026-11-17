@@ -1,0 +1,12 @@
+### 등록
+POST http://localhost:4000/problems
+Content-Type: application/json
+
+{
+  "title": "택배 도착 알림이 너무 늦어요",
+  "content": "문 앞에 놓인 지 1시간 뒤에야 알림이 와요",
+  "category": "생활"
+}
+
+### 조회
+GET http://localhost:4000/problems
