@@ -2,7 +2,7 @@ require("dotenv").config({ quiet: true });
 
 const { GoogleGenAI } = require("@google/genai");
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const TIMEOUT_MS = 60_000;
 
 const SW_CATEGORIES = ["direct", "partial", "difficult"];
