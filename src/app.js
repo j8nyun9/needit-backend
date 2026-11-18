@@ -18,7 +18,7 @@ app.use((req, res, next) => {
   if (origin && allowedOrigins.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Voter-Id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Voter-Id, Authorization');
   }
   if (req.method === 'OPTIONS') {
     return res.sendStatus(origin && !allowedOrigins.has(origin) ? 403 : 204);
@@ -58,6 +58,7 @@ app.get("/db-test", async (req, res) => {
     data: data
   });
 });
+app.use("/api/auth", require("./routes/auth").createAuthRouter(supabase));
 const problemRoutes = require("./routes/problems");
 
 app.use("/api/problems", problemRoutes);

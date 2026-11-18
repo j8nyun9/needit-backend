@@ -100,3 +100,17 @@ Render Web Service를 통해 배포합니다.
 - Region: Singapore
 
 실제 배포 주소는 Render에서 생성된 URL을 사용합니다.
+## Email login
+
+POST /api/auth/login accepts { "email": "...", "password": "..." }.
+Requires students(id, name, email, password). id must be a primary key and
+email must be unique. password must be a text column (at least 168 characters).
+Existing demo plaintext passwords are upgraded to salted scrypt hashes on first
+successful login. Migration must succeed before login is allowed. Passwords are
+never returned. Existing bcrypt/Argon2 hashes need a matching verifier instead.
+GET /api/auth/me and POST /api/auth/logout use Authorization: Bearer <accessToken>.
+Sessions expire after 8 hours and are held in server memory: restarts invalidate
+sessions. This implementation is for one backend instance; use shared session
+storage or managed authentication before scaling to multiple instances.
+The frontend keeps the session token in sessionStorage, not passwords.
+Profile editing and activity ownership are separate from login and not synced.
