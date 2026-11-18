@@ -2,7 +2,9 @@ const express = require("express");
 const supabase = require("../config/supabase");
 const { generatePlan } = require("../services/aiPlanner");
 
+const {hidePlan,personalRow,personalRows,savePersonalPlan}=require('../services/personalPlans');
 const router = express.Router();
+router.use((req,res,next)=>{res.set('Cache-Control','private, no-store');res.vary('Authorization');next();});
 
 // AI 재생성 제한 (서버 메모리 기준 — 서버 재시작 시 초기화)
 const REGEN_COOLDOWN_MS = 0; // 같은 글 재생성 대기 없음 (분석 중 중복 요청은 409로 막음)
@@ -100,7 +102,8 @@ router.get("/", async (req, res) => {
     if (error) throw error;
 
     const likedIds = await getLikedIds(getVoterId(req), data.map((p) => p.id));
-    res.json(data.map((row) => toListItem(row, likedIds)));
+    const visible=await personalRows(supabase,data,req.user?.id);
+    res.json(visible.map((row) => toListItem(row, likedIds)));
   } catch (error) {
     serverError(res, error);
   }
@@ -135,16 +138,7 @@ router.post("/", async (req, res) => {
 
   if (error) return serverError(res, error);
 
-  // AI 분석 — 실패해도 게시글 등록은 성공(201)으로 응답
-  inFlight.add(data.id);
-  try {
-    const result = await analyzeAndSave(data);
-    res.status(201).json(result.ok
-      ? { ...result.row, ai_status: "success" }
-      : { ...data, ai_status: "failed", ai_error: result.aiError });
-  } finally {
-    inFlight.delete(data.id);
-  }
+  res.status(201).json(hidePlan(data));
 });
 
 // 3. 상세 조회 (GET /api/problems/:id)
@@ -170,7 +164,7 @@ router.get("/:id", async (req, res) => {
     const likedIds = await getLikedIds(getVoterId(req), [problem.id]);
 
     res.json({
-      ...toListItem(problem, likedIds),
+      ...toListItem((await personalRows(supabase,[problem],req.user?.id))[0], likedIds),
       project_id: project_problems?.[0]?.project_id ?? null
     });
   } catch (error) {
@@ -182,6 +176,7 @@ router.get("/:id", async (req, res) => {
 
 // AI 분석 재생성 (POST /api/problems/:id/plan)
 router.post("/:id/plan", async (req, res) => {
+  if(!req.user?.id)return res.status(401).json({error:'로그인 후 AI 기획안을 생성해주세요.'});
   const { id: rawId } = req.params;
   if (!isValidId(rawId)) return res.status(400).json({ error: "잘못된 ID입니다." });
   const id = Number(rawId);
@@ -228,6 +223,8 @@ router.post("/:id/plan", async (req, res) => {
     return res.status(404).json({ error: "해당 불편함을 찾을 수 없습니다." });
   }
 
+  const {error:storeError}=await supabase.from('problem_ai_plans').select('problem_id').eq('user_id',req.user.id).eq('problem_id',id).limit(1);
+  if(storeError)return res.status(503).json({error:'개인 기획안 저장소가 준비되지 않았어요. problem_ai_plans 테이블과 서버 DB 권한을 확인해주세요.'});
   hits.push(now);
   ipHits.set(ip, hits);
   lastRegenAt.set(id, now);
@@ -243,7 +240,13 @@ router.post("/:id/plan", async (req, res) => {
         ai_error: result.aiError
       });
     }
-    res.json({ ...result.row, ai_status: "success" });
+    try {
+      await savePersonalPlan(supabase,req.user.id,id,result.row.ai_plan);
+    } catch(error) {
+      console.error('Personal plan save failed:',error.code||'DB_ERROR');
+      return res.status(503).json({error:'개인 기획안을 저장하지 못했어요. 백엔드에 problem_ai_plans 테이블이 준비됐는지 확인해주세요.'});
+    }
+    res.json({ ...personalRow(result.row,result.row.ai_plan,req.user.id), ai_status: "success" });
   } finally {
     inFlight.delete(id);
   }
@@ -259,25 +262,10 @@ async function analyzeAndSave(problem) {
     return { ok: false, aiError: toClientError(err.code) };
   }
 
-  const { data, error } = await supabase
-    .from("problems")
-    .update({
-      sw_category: plan.swCategory,
-      sw_reason: plan.swReason,
-      ai_plan: plan
-    })
-    .eq("id", problem.id)
-    .select()
-    .single();
-
-  if (error) {
-    console.error(`[AI] problem ${problem.id} 분석 결과 저장 실패: ${error.message}`);
-    return { ok: false, aiError: toClientError("DB_SAVE_FAILED") };
-  }
-
-  return { ok: true, row: data };
+  // The generated content is persisted only in the authenticated user's private
+  // snapshot by the route; do not overwrite a shared problems.ai_plan field.
+  return { ok: true, row: { ...problem, ai_plan: plan } };
 }
-
 function toClientError(code) {
   const c = code || "UNKNOWN";
   return {

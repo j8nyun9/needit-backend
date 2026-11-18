@@ -115,3 +115,13 @@ Application sessions are stored in memory for up to 8 hours, capped by the Supab
 access token expiry. Restarts invalidate them. Browser tokens use sessionStorage.
 Logout revokes the application token; Supabase tokens are never given to the browser.
 For multiple server instances, replace memory storage with a shared session store.
+## Private AI plans
+
+Before deploying the private-plan feature, execute
+migrations/20261118_personal_ai_plans.sql in Supabase SQL Editor.
+AI generation requires login and saves a snapshot per authenticated user and
+problem. List/detail GET responses expose only the current user's saved snapshot.
+Anonymous users and users who have not generated a plan receive ai_plan: null.
+Legacy shared plans are not attributed to a user because ownership is unknown.
+Problem registration no longer generates AI automatically: the user must press
+Generate. The backend secret key must have service_role access to the private table.

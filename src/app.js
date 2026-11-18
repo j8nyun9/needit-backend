@@ -43,7 +43,7 @@ const supabase = require("./config/supabase");
 app.get("/db-test", async (req, res) => {
   const { data, error } = await supabase
     .from("problems")
-    .select("*")
+    .select("id")
     .limit(1);
 
   if (error) {
@@ -61,6 +61,7 @@ app.get("/db-test", async (req, res) => {
 const authRoutes = require('./routes/auth').createAuthRouter(supabase);
 app.use('/api/auth', authRoutes);
 // Browsing is public; writes require a valid session.
+app.use('/api', authRoutes.optionalAuth);
 app.use('/api', (req, res, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   authRoutes.requireAuth(req, res, () => {

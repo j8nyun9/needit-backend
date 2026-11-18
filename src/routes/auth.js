@@ -8,6 +8,7 @@ function createAuthRouter(db,makeClient=isolatedAuthClient){
  const publicUser=u=>({id:u.id,name:u.name,email:u.email});
  function token(req){return /^Bearer ([a-f0-9]{64})$/.exec(req.get('Authorization')||'')?.[1];}
  function cleanup(){const now=Date.now();for(const[k,v]of sessions)if(v.expiresAt<=now)sessions.delete(k);for(const[k,v]of attempts)if(v.until<=now)attempts.delete(k);}
+ router.optionalAuth=(req,res,next)=>{cleanup();req.user=sessions.get(token(req))?.user||null;next();};
  router.requireAuth=(req,res,next)=>{cleanup();const session=sessions.get(token(req));if(!session)return res.status(401).json({error:'로그인 후 사용할 수 있는 기능이에요.'});req.user=session.user;next();};
  router.use((req,res,next)=>{res.set('Cache-Control','no-store');next();});
  router.post('/login',async(req,res)=>{
