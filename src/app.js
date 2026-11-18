@@ -58,6 +58,9 @@ app.get("/db-test", async (req, res) => {
 const problemRoutes = require("./routes/problems");
 
 app.use("/api/problems", problemRoutes);
+app.use("/api/projects", require("./routes/projects"));
+app.use("/api/activities", require("./routes/activities"));
+
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on ${PORT}`);
