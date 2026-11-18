@@ -3,6 +3,25 @@ const express = require("express");
 
 const app = express();
 
+// Allow the deployed frontend and local development to call the API.
+const allowedOrigins = new Set([
+  'https://needit-frontend.onrender.com',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+]);
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  res.vary('Origin');
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(origin && !allowedOrigins.has(origin) ? 403 : 204);
+  }
+  next();
+});
 app.use(express.json());
 
 app.get("/", (req, res) => {
