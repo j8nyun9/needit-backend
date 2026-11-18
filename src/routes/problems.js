@@ -377,7 +377,7 @@ router.post("/:id/comments", async (req, res) => {
 
   const { data, error } = await supabase
     .from("comments")
-    .insert({ problem_id: Number(id), content: content.trim() })
+    .insert({ problem_id: Number(id), content: content.trim(), author_name: req.user.name })
     .select("id, content, author_name, created_at")
     .single();
 

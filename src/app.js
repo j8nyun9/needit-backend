@@ -58,7 +58,17 @@ app.get("/db-test", async (req, res) => {
     data: data
   });
 });
-app.use("/api/auth", require("./routes/auth").createAuthRouter(supabase));
+const authRoutes = require('./routes/auth').createAuthRouter(supabase);
+app.use('/api/auth', authRoutes);
+// Browsing is public; writes require a valid session.
+app.use('/api', (req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  authRoutes.requireAuth(req, res, () => {
+    // Use the authenticated student UUID rather than a caller-selected voter ID.
+    req.headers['x-voter-id'] = String(req.user.id);
+    next();
+  });
+});
 const problemRoutes = require("./routes/problems");
 
 app.use("/api/problems", problemRoutes);
