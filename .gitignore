@@ -16,3 +16,5 @@ application-local.yaml
 .DS_Store
 Thumbs.db
 .env
+
+scripts/students.json
