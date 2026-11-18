@@ -22,7 +22,13 @@ const AI_ERROR_MESSAGES = {
   DB_SAVE_FAILED: "AI 분석 결과를 저장하지 못했어요."
 };
 
-const CATEGORIES = ["시설", "도서관", "학사·행정", "학교생활", "기타"];
+const CATEGORIES = ["시설·이동", "수업·학습", "학사·행정", "편의·복지", "기타"];
+const LEGACY_CATEGORIES = { "시설": "시설·이동", "도서관": "수업·학습", "학교생활": "기타" };
+function normalizeCategory(value) {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  return LEGACY_CATEGORIES[v] ?? v;
+}
 const TITLE_MAX = 100;
 const CONTENT_MAX = 1000;
 const COMMENT_MAX = 500;
@@ -100,7 +106,9 @@ router.get("/", async (req, res) => {
 
 // 2. 등록 (POST /api/problems)
 router.post("/", async (req, res) => {
-  const { title, content, category } = req.body ?? {};
+    const { title, content } = req.body ?? {};
+    const category = normalizeCategory(req.body?.category);
+
 
   if (
     typeof title !== "string" ||
