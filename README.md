@@ -102,15 +102,16 @@ Render Web Service를 통해 배포합니다.
 실제 배포 주소는 Render에서 생성된 URL을 사용합니다.
 ## Email login
 
-POST /api/auth/login accepts { "email": "...", "password": "..." }.
-Requires students(id, name, email, password). id must be a primary key and
-email must be unique. password must be a text column (at least 168 characters).
-Existing demo plaintext passwords are upgraded to salted scrypt hashes on first
-successful login. Migration must succeed before login is allowed. Passwords are
-never returned. Existing bcrypt/Argon2 hashes need a matching verifier instead.
-GET /api/auth/me and POST /api/auth/logout use Authorization: Bearer <accessToken>.
-Sessions expire after 8 hours and are held in server memory: restarts invalidate
-sessions. This implementation is for one backend instance; use shared session
-storage or managed authentication before scaling to multiple instances.
-The frontend keeps the session token in sessionStorage, not passwords.
-Profile editing and activity ownership are separate from login and not synced.
+POST /api/auth/login accepts email and password and validates them with
+Supabase Auth signInWithPassword. Accounts must exist in Authentication > Users.
+Profiles are read from profiles(id, name, email), with id matching the Auth user
+UUID. If a profile is missing, user_metadata.name is used as a fallback.
+No students table or password column is needed, and login never rewrites passwords.
+A fresh Supabase client per login prevents user sessions from changing the shared
+administrative client. The API returns a separate opaque application token, not
+Supabase admin keys or passwords. GET /api/auth/me and POST /api/auth/logout use
+Authorization: Bearer <accessToken>.
+Application sessions are stored in memory for up to 8 hours, capped by the Supabase
+access token expiry. Restarts invalidate them. Browser tokens use sessionStorage.
+Logout revokes the application token; Supabase tokens are never given to the browser.
+For multiple server instances, replace memory storage with a shared session store.
