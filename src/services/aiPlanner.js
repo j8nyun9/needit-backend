@@ -156,7 +156,23 @@ function toAiPlanError(err) {
   return new AiPlanError("UNKNOWN", sanitize(err && err.message));
 }
 
-async function generatePlan({ title, content, category }) {
+// 일시적인 오류(혼잡·사용량 초과·응답 형식 오류)는 잠깐 쉬었다가 자동 재시도
+const RETRYABLE = new Set(["RATE_LIMITED", "GEMINI_HTTP_500", "GEMINI_HTTP_503", "INVALID_RESPONSE", "EMPTY_RESPONSE"]);
+const RETRY_DELAYS_MS = [1000, 2000]; // 최대 2번 재시도
+
+async function generatePlan(problem) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await generatePlanOnce(problem);
+    } catch (err) {
+      if (!RETRYABLE.has(err.code) || attempt >= RETRY_DELAYS_MS.length) throw err;
+      console.warn(`[AI] ${err.code} → ${RETRY_DELAYS_MS[attempt] / 1000}초 후 재시도 (${attempt + 1}/${RETRY_DELAYS_MS.length})`);
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
+async function generatePlanOnce({ title, content, category }) {
   try {
     const response = await getClient().models.generateContent({
       model: MODEL,

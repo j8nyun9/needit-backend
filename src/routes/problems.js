@@ -5,9 +5,9 @@ const { generatePlan } = require("../services/aiPlanner");
 const router = express.Router();
 
 // AI 재생성 제한 (서버 메모리 기준 — 서버 재시작 시 초기화)
-const REGEN_COOLDOWN_MS = 60 * 1000; // 같은 글은 1분에 1번
-const IP_LIMIT = 10; // IP당
-const IP_WINDOW_MS = 60 * 60 * 1000; // 1시간에 10번
+const REGEN_COOLDOWN_MS = 0; // 같은 글 재생성 대기 없음 (분석 중 중복 요청은 409로 막음)
+const IP_LIMIT = 30; // IP당
+const IP_WINDOW_MS = 10 * 60 * 1000; // 10분에 30번 (비용 폭주 방지용)
 const inFlight = new Set(); // 분석 진행 중인 글 id
 const lastRegenAt = new Map(); // 글 id -> 마지막 재생성 시각
 const ipHits = new Map(); // ip -> 요청 시각 배열
