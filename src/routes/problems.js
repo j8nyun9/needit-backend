@@ -1,7 +1,26 @@
 const express = require("express");
 const supabase = require("../config/supabase");
+const { generatePlan } = require("../services/aiPlanner");
 
 const router = express.Router();
+
+// AI 재생성 제한 (서버 메모리 기준 — 서버 재시작 시 초기화)
+const REGEN_COOLDOWN_MS = 60 * 1000; // 같은 글은 1분에 1번
+const IP_LIMIT = 10; // IP당
+const IP_WINDOW_MS = 60 * 60 * 1000; // 1시간에 10번
+const inFlight = new Set(); // 분석 진행 중인 글 id
+const lastRegenAt = new Map(); // 글 id -> 마지막 재생성 시각
+const ipHits = new Map(); // ip -> 요청 시각 배열
+
+const AI_ERROR_MESSAGES = {
+  CONFIG: "AI 설정이 완료되지 않아 분석하지 못했어요.",
+  TIMEOUT: "AI 응답이 지연되어 분석하지 못했어요. 잠시 후 다시 시도해주세요.",
+  RATE_LIMITED: "AI 사용량이 많아 분석하지 못했어요. 잠시 후 다시 시도해주세요.",
+  GEMINI_HTTP_503: "AI 서버가 혼잡해 분석하지 못했어요. 잠시 후 다시 시도해주세요.",
+  INVALID_RESPONSE: "AI 응답 형식이 올바르지 않아 분석하지 못했어요. 다시 시도해주세요.",
+  EMPTY_RESPONSE: "AI가 결과를 생성하지 못했어요. 다시 시도해주세요.",
+  DB_SAVE_FAILED: "AI 분석 결과를 저장하지 못했어요."
+};
 
 const CATEGORIES = ["시설", "도서관", "학사·행정", "학교생활", "기타"];
 const TITLE_MAX = 100;
@@ -105,7 +124,17 @@ router.post("/", async (req, res) => {
     .single();
 
   if (error) return serverError(res, error);
-  res.status(201).json(data);
+
+  // AI 분석 — 실패해도 게시글 등록은 성공(201)으로 응답
+  inFlight.add(data.id);
+  try {
+    const result = await analyzeAndSave(data);
+    res.status(201).json(result.ok
+      ? { ...result.row, ai_status: "success" }
+      : { ...data, ai_status: "failed", ai_error: result.aiError });
+  } finally {
+    inFlight.delete(data.id);
+  }
 });
 
 // 3. 상세 조회 (GET /api/problems/:id)
@@ -138,6 +167,114 @@ router.get("/:id", async (req, res) => {
     serverError(res, error);
   }
 });
+
+// ---------- AI 분석 ----------
+
+// AI 분석 재생성 (POST /api/problems/:id/plan)
+router.post("/:id/plan", async (req, res) => {
+  const { id: rawId } = req.params;
+  if (!isValidId(rawId)) return res.status(400).json({ error: "잘못된 ID입니다." });
+  const id = Number(rawId);
+
+  if (inFlight.has(id)) {
+    return res.status(409).json({
+      error: "이미 AI 분석이 진행 중이에요. 잠시 후 확인해주세요.",
+      ai_status: "in_progress"
+    });
+  }
+
+  const now = Date.now();
+  const last = lastRegenAt.get(id);
+  if (last && now - last < REGEN_COOLDOWN_MS) {
+    const retryAfter = Math.ceil((REGEN_COOLDOWN_MS - (now - last)) / 1000);
+    res.set("Retry-After", String(retryAfter));
+    return res.status(429).json({
+      error: `AI 재분석은 ${retryAfter}초 후에 다시 요청할 수 있어요.`,
+      ai_status: "rate_limited",
+      retry_after: retryAfter
+    });
+  }
+
+  const ip = req.ip;
+  const hits = (ipHits.get(ip) || []).filter((t) => now - t < IP_WINDOW_MS);
+  if (hits.length >= IP_LIMIT) {
+    const retryAfter = Math.ceil((IP_WINDOW_MS - (now - hits[0])) / 1000);
+    res.set("Retry-After", String(retryAfter));
+    return res.status(429).json({
+      error: "AI 재분석 요청이 너무 많아요. 잠시 후 다시 시도해주세요.",
+      ai_status: "rate_limited",
+      retry_after: retryAfter
+    });
+  }
+
+  const { data: problem, error } = await supabase
+    .from("problems")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) return serverError(res, error);
+  if (!problem) {
+    return res.status(404).json({ error: "해당 불편함을 찾을 수 없습니다." });
+  }
+
+  hits.push(now);
+  ipHits.set(ip, hits);
+  lastRegenAt.set(id, now);
+  inFlight.add(id);
+
+  try {
+    const result = await analyzeAndSave(problem);
+    if (!result.ok) {
+      // 기존 분석 결과는 그대로 유지
+      return res.status(502).json({
+        error: result.aiError.message,
+        ai_status: "failed",
+        ai_error: result.aiError
+      });
+    }
+    res.json({ ...result.row, ai_status: "success" });
+  } finally {
+    inFlight.delete(id);
+  }
+});
+
+// Gemini 분석 후 sw_category, sw_reason, ai_plan 저장
+async function analyzeAndSave(problem) {
+  let plan;
+  try {
+    plan = await generatePlan(problem);
+  } catch (err) {
+    console.error(`[AI] problem ${problem.id} 분석 실패 (${err.code || "UNKNOWN"}): ${err.message}`);
+    return { ok: false, aiError: toClientError(err.code) };
+  }
+
+  const { data, error } = await supabase
+    .from("problems")
+    .update({
+      sw_category: plan.swCategory,
+      sw_reason: plan.swReason,
+      ai_plan: plan
+    })
+    .eq("id", problem.id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error(`[AI] problem ${problem.id} 분석 결과 저장 실패: ${error.message}`);
+    return { ok: false, aiError: toClientError("DB_SAVE_FAILED") };
+  }
+
+  return { ok: true, row: data };
+}
+
+function toClientError(code) {
+  const c = code || "UNKNOWN";
+  return {
+    code: c,
+    message: AI_ERROR_MESSAGES[c] || "AI 분석에 실패했어요. 잠시 후 다시 시도해주세요."
+  };
+}
 
 // ---------- 공감 ----------
 

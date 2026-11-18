@@ -3,6 +3,9 @@ const express = require("express");
 
 const app = express();
 
+// Render 프록시 뒤에서 실제 클라이언트 IP를 req.ip로 받기 위함 (AI 재생성 제한용)
+app.set("trust proxy", 1);
+
 // Allow the deployed frontend and local development to call the API.
 const allowedOrigins = new Set([
   'https://needit-frontend.onrender.com',
