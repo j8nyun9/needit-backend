@@ -22,13 +22,15 @@ const AI_ERROR_MESSAGES = {
   DB_SAVE_FAILED: "AI 분석 결과를 저장하지 못했어요."
 };
 
-const CATEGORIES = ["시설·이동", "수업·학습", "학사·행정", "편의·복지", "기타"];
+const CATEGORIES = ["시설\u00B7이동", "수업\u00B7학습", "학사\u00B7행정", "편의\u00B7복지", "기타"];
 const LEGACY_CATEGORIES = { "시설": "시설·이동", "도서관": "수업·학습", "학교생활": "기타" };
 function normalizeCategory(value) {
   if (typeof value !== "string") return null;
-  const v = value.trim();
+  // 가운데 점 종류(ㆍ ・ ‧ ∙ • ･)를 전부 같은 점(·)으로 통일
+  const v = value.trim().replace(/[\u318D\u30FB\u2027\u2219\u2022\uFF65\u00B7]/g, "\u00B7");
   return LEGACY_CATEGORIES[v] ?? v;
 }
+
 const TITLE_MAX = 100;
 const CONTENT_MAX = 1000;
 const COMMENT_MAX = 500;
