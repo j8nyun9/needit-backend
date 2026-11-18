@@ -1,8 +1,11 @@
-
 const express = require("express");
 const supabase = require("../config/supabase");
 
 const router = express.Router();
+
+const CATEGORIES = ["시설", "도서관", "학사·행정", "학교생활", "기타"];
+const TITLE_MAX = 100;
+const CONTENT_MAX = 1000;
 
 // 1. 불편함 목록 조회
 router.get("/", async (req, res) => {
@@ -23,7 +26,7 @@ router.get("/", async (req, res) => {
 
 // 2. 새로운 불편함 등록
 router.post("/", async (req, res) => {
-  const { title, content, category } = req.body;
+  const { title, content, category } = req.body ?? {};
 
   if (
     typeof title !== "string" ||
@@ -31,13 +34,12 @@ router.post("/", async (req, res) => {
     typeof category !== "string" ||
     !title.trim() ||
     !content.trim() ||
-    !category.trim() ||
-    title.length > 100 ||
-    content.length > 2000 ||
-    category.length > 30
+    title.trim().length > TITLE_MAX ||
+    content.trim().length > CONTENT_MAX ||
+    !CATEGORIES.includes(category.trim())
   ) {
     return res.status(400).json({
-      error: "입력값을 확인해주세요."
+      error: `입력값을 확인해주세요. (제목 ${TITLE_MAX}자, 내용 ${CONTENT_MAX}자 이내, 카테고리: ${CATEGORIES.join(", ")})`
     });
   }
 
