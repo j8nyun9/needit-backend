@@ -5,6 +5,7 @@ const { generatePlan } = require("../services/aiPlanner");
 const {hidePlan,personalRow,personalRows,savePersonalPlan}=require('../services/personalPlans');
 const {empathySummary,persistedLikesCount}=require('../services/problemEmpathies');
 const {ownedProblem,createDeleteProblemHandler}=require('../services/problemOwnership');
+const {PROBLEM_WITH_PROJECT,withProjectId}=require('../services/problemProjects');
 const router = express.Router();
 router.use((req,res,next)=>{res.set('Cache-Control','private, no-store');res.vary('Authorization');next();});
 
@@ -97,17 +98,20 @@ function serverError(res, error) {
 // 1. 목록 조회 (GET /api/problems)
 router.get("/", async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data: rows, error } = await supabase
       .from("problems")
-      .select("*")
+      .select(PROBLEM_WITH_PROJECT)
       .order("created_at", { ascending: false })
       .limit(100);
     if (error) throw error;
 
+    const linked = rows.map(withProjectId);
+    const data = linked.map(l=>l.problem);
+    const projectIds = new Map(linked.map(l=>[String(l.problem.id),l.project_id]));
     const votes = await empathySummary(supabase,data.map(p=>p.id),getVoterId(req));
     const likedIds = new Set(data.filter(p=>votes.get(String(p.id))?.liked).map(p=>p.id));
     const visible=await personalRows(supabase,data,req.user?.id);
-    res.json(visible.map(row=>ownedProblem(toListItem({...row,likes_count:votes.get(String(row.id))?.count??0},likedIds),req.user?.id)));
+    res.json(visible.map(row=>({...ownedProblem(toListItem({...row,likes_count:votes.get(String(row.id))?.count??0},likedIds),req.user?.id),project_id:projectIds.get(String(row.id))??null})));
   } catch (error) {
     serverError(res, error);
   }
@@ -156,7 +160,7 @@ router.get("/:id", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("problems")
-      .select("*, project_problems ( project_id )")
+      .select(PROBLEM_WITH_PROJECT)
       .eq("id", Number(id))
       .maybeSingle();
     if (error) throw error;
@@ -165,14 +169,14 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "해당 불편함을 찾을 수 없습니다." });
     }
 
-    const { project_problems, ...problem } = data;
+    const { problem, project_id } = withProjectId(data);
     const votes=await empathySummary(supabase,[problem.id],getVoterId(req));
     const vote=votes.get(String(problem.id));
     const likedIds=new Set(vote?.liked?[problem.id]:[]);
 
     res.json({
       ...ownedProblem(toListItem({...((await personalRows(supabase,[problem],req.user?.id))[0]),likes_count:vote?.count??0}, likedIds),req.user?.id),
-      project_id: project_problems?.[0]?.project_id ?? null
+      project_id
     });
   } catch (error) {
     serverError(res, error);

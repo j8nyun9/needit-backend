@@ -5,6 +5,20 @@ function safeUrl(value) {
   if (typeof value !== 'string' || value.length > 2000) return null;
   try { const u = new URL(value); return ['https:', 'http:'].includes(u.protocol) && !u.username && !u.password ? u.href : null; } catch { return null; }
 }
+const TITLE_MAX=100,DESCRIPTION_MAX=5000,FEATURES_MAX=10,FEATURE_MAX=250;
+// Returns the cleaned project draft, or null when any field breaks the API contract.
+function parseAdoption(body){
+ const {problem_id,title,description,features}=body||{};
+ const problemId=typeof problem_id==='string'&&/^\d+$/.test(problem_id)?Number(problem_id):problem_id;
+ if(!Number.isSafeInteger(problemId)||problemId<=0)return null;
+ if(typeof title!=='string'||typeof description!=='string')return null;
+ const t=title.trim(),d=description.trim();
+ if(!t||t.length>TITLE_MAX||!d||d.length>DESCRIPTION_MAX)return null;
+ if(features!==undefined&&features!==null&&!Array.isArray(features))return null;
+ const list=(features||[]).map(f=>typeof f==='string'?f.trim():null);
+ if(list.length>FEATURES_MAX||list.some(f=>!f||f.length>FEATURE_MAX))return null;
+ return {problemId,title:t,description:d,features:list};
+}
 async function result(query) { const {data,error}=await query; if(error) throw error; return data; }
 function createProjectsRouter(db) {
  const router=express.Router();
@@ -20,6 +34,19 @@ function createProjectsRouter(db) {
   const rows=await result(db.from('projects').select('*').order('created_at',{ascending:false}).limit(100));
   const links=await result(db.from('project_problems').select('project_id,problem_id'));
   res.json((await decorate(rows,req.user)).map(p=>({...p,problem_ids:links.filter(l=>String(l.project_id)===String(p.id)).map(l=>l.problem_id)})));
+ }catch(e){next(e);}});
+ router.post('/',login,async(req,res,next)=>{try{
+  const draft=parseAdoption(req.body);
+  if(!draft)return res.status(400).json({error:`입력값을 확인해주세요. 제목 ${TITLE_MAX}자, 설명 ${DESCRIPTION_MAX}자 이내이고 기능은 최대 ${FEATURES_MAX}개, 항목당 ${FEATURE_MAX}자까지 입력할 수 있어요.`});
+  // Plan ownership, project insert and problem link are checked/written in one DB transaction.
+  const {data,error}=await db.rpc('create_project_from_problem',{p_user_id:req.user.id,p_problem_id:draft.problemId,p_title:draft.title,p_description:draft.description,p_features:draft.features});
+  if(error){console.error('Project adoption failed:',error.code||'DB_ERROR');return res.status(503).json({error:'프로젝트를 등록하지 못했어요. 잠시 후 다시 시도해주세요. 계속되면 프로젝트 채택 DB 설정을 확인해주세요.'});}
+  if(data?.status==='not_found')return res.status(404).json({error:'원본 불편함을 찾을 수 없어요.'});
+  if(data?.status==='forbidden')return res.status(403).json({error:'이 불편함에 대한 내 AI 기획안이 있어야 프로젝트를 등록할 수 있어요.'});
+  if(data?.status==='conflict')return res.status(409).json({error:'이미 다른 프로젝트에 채택된 불편함이에요.'});
+  if(data?.status!=='created'||!data.project)return res.status(503).json({error:'등록 결과를 확인하지 못했어요. 프로젝트 목록을 다시 불러와 확인해주세요.'});
+  const [project]=await decorate([data.project],req.user);
+  res.status(201).json({...project,problem_ids:[draft.problemId]});
  }catch(e){next(e);}});
  router.get('/notifications',login,async(req,res,next)=>{try{
   const favorites=await result(db.from('project_favorites').select('project_id').eq('user_id',req.user.id));
@@ -68,4 +95,4 @@ function createProjectsRouter(db) {
  router.use((e,req,res,next)=>{console.error('Project API:',e.code||e.message);res.status(500).json({error:'프로젝트 정보를 처리하지 못했어요. 서버 로그와 프로젝트 배포 기능 DB 설정을 확인해주세요.'});});
  return router;
 }
-module.exports={createProjectsRouter,safeUrl,statuses};
+module.exports={createProjectsRouter,safeUrl,statuses,parseAdoption};
