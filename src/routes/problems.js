@@ -5,7 +5,7 @@ const { generatePlan } = require("../services/aiPlanner");
 const {hidePlan,personalRow,personalRows,savePersonalPlan}=require('../services/personalPlans');
 const {empathySummary,persistedLikesCount}=require('../services/problemEmpathies');
 const {ownedProblem,createDeleteProblemHandler}=require('../services/problemOwnership');
-const {PROBLEM_WITH_PROJECT,withProjectId}=require('../services/problemProjects');
+const {PROBLEM_WITH_PROJECT,withProjectId,projectCounts}=require('../services/problemProjects');
 const router = express.Router();
 router.use((req,res,next)=>{res.set('Cache-Control','private, no-store');res.vary('Authorization');next();});
 
@@ -108,10 +108,11 @@ router.get("/", async (req, res) => {
     const linked = rows.map(withProjectId);
     const data = linked.map(l=>l.problem);
     const projectIds = new Map(linked.map(l=>[String(l.problem.id),l.project_id]));
+    const counts = await projectCounts(supabase,linked);
     const votes = await empathySummary(supabase,data.map(p=>p.id),getVoterId(req));
     const likedIds = new Set(data.filter(p=>votes.get(String(p.id))?.liked).map(p=>p.id));
     const visible=await personalRows(supabase,data,req.user?.id);
-    res.json(visible.map(row=>({...ownedProblem(toListItem({...row,likes_count:votes.get(String(row.id))?.count??0},likedIds),req.user?.id),project_id:projectIds.get(String(row.id))??null})));
+    res.json(visible.map(row=>({...ownedProblem(toListItem({...row,likes_count:votes.get(String(row.id))?.count??0},likedIds),req.user?.id),project_id:projectIds.get(String(row.id))??null,...(counts.get(String(row.id))??{project_count:0,deployed_project_count:0})})));
   } catch (error) {
     serverError(res, error);
   }

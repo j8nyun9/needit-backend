@@ -11,8 +11,6 @@ function mockDb(){
   rpc(name,args){state.calls.push(name);
    if(!state.problems.includes(args.p_problem_id))return Promise.resolve({data:{status:'not_found'},error:null});
    if(!state.plans.some(([u,p])=>u===args.p_user_id&&p===args.p_problem_id))return Promise.resolve({data:{status:'forbidden'},error:null});
-   const linked=state.links.find(l=>l.problem_id===args.p_problem_id);
-   if(linked)return Promise.resolve({data:{status:'conflict',project_id:linked.project_id},error:null});
    const project={id:state.projects.length+5,title:args.p_title,description:args.p_description,features:args.p_features,owner_id:args.p_user_id,release_status:'기획 중'};
    state.projects.push(project);state.links.push({project_id:project.id,problem_id:args.p_problem_id});
    return Promise.resolve({data:{status:'created',project},error:null});
@@ -43,15 +41,32 @@ test('POST /projects status codes and single adoption',async t=>{
  const created=await post('alice',body);assert.equal(created.status,201);
  const project=await created.json();
  assert.equal(project.id,5);assert.equal(project.can_edit,true);assert.equal(project.owner_id,undefined);assert.deepEqual(project.problem_ids,[34]);
- const dup=await post('bob',body);assert.equal(dup.status,409);
- assert.deepEqual(await dup.json(),{error:'이미 다른 프로젝트에 채택된 불편함이에요.'});
- assert.equal(db.state.projects.length,1);
+ const second=await post('bob',body);assert.equal(second.status,201);
+ const bobProject=await second.json();
+ assert.notEqual(bobProject.id,project.id);assert.equal(bobProject.can_edit,true);
+ assert.equal(db.state.projects.length,2);
+ assert.deepEqual(db.state.links.map(l=>l.problem_id),[34,34]);
 });
 
 test('project_id from either PostgREST embed shape',()=>{
  assert.equal(withProjectId({id:1,project_problems:[{project_id:5}]}).project_id,5);
+ assert.equal(withProjectId({id:1,project_problems:[{project_id:9},{project_id:6}]}).project_id,6);
  assert.equal(withProjectId({id:1,project_problems:{project_id:6}}).project_id,6);
  assert.equal(withProjectId({id:1,project_problems:[]}).project_id,null);
  assert.equal(withProjectId({id:1,project_problems:null}).project_id,null);
  assert.equal('project_problems' in withProjectId({id:1,project_problems:null}).problem,false);
+});
+
+test('project_count and deployed_project_count per problem',async()=>{
+ const {projectCounts}=require('../src/services/problemProjects');
+ const projects=[{id:1,release_status:'서비스 운영 중',deployment_url:'https://a.example'},{id:2,release_status:'개발 중',deployment_url:'https://b.example'},{id:3,release_status:'서비스 운영 중',deployment_url:'javascript:alert(1)'},{id:4,release_status:'서비스 운영 중',deployment_url:''}];
+ const db={from:()=>({select:()=>({in:(k,ids)=>Promise.resolve({data:projects.filter(p=>ids.includes(String(p.id))),error:null})})})};
+ const rows=[{id:36,project_problems:[{project_id:1},{project_id:2},{project_id:3},{project_id:1}]},{id:37,project_problems:{project_id:4}},{id:38,project_problems:[]},{id:39,project_problems:null}].map(withProjectId);
+ const counts=await projectCounts(db,rows);
+ assert.deepEqual(counts.get('36'),{project_count:3,deployed_project_count:1});
+ assert.deepEqual(counts.get('37'),{project_count:1,deployed_project_count:0});
+ assert.deepEqual(counts.get('38'),{project_count:0,deployed_project_count:0});
+ assert.deepEqual(counts.get('39'),{project_count:0,deployed_project_count:0});
+ const failing={from:()=>({select:()=>({in:()=>Promise.resolve({data:null,error:{code:'42703'}})})})};
+ assert.deepEqual((await projectCounts(failing,rows)).get('36'),{project_count:3,deployed_project_count:0});
 });

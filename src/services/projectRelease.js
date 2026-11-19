@@ -43,7 +43,6 @@ function createProjectsRouter(db) {
   if(error){console.error('Project adoption failed:',error.code||'DB_ERROR');return res.status(503).json({error:'프로젝트를 등록하지 못했어요. 잠시 후 다시 시도해주세요. 계속되면 프로젝트 채택 DB 설정을 확인해주세요.'});}
   if(data?.status==='not_found')return res.status(404).json({error:'원본 불편함을 찾을 수 없어요.'});
   if(data?.status==='forbidden')return res.status(403).json({error:'이 불편함에 대한 내 AI 기획안이 있어야 프로젝트를 등록할 수 있어요.'});
-  if(data?.status==='conflict')return res.status(409).json({error:'이미 다른 프로젝트에 채택된 불편함이에요.'});
   if(data?.status!=='created'||!data.project)return res.status(503).json({error:'등록 결과를 확인하지 못했어요. 프로젝트 목록을 다시 불러와 확인해주세요.'});
   const [project]=await decorate([data.project],req.user);
   res.status(201).json({...project,problem_ids:[draft.problemId]});
