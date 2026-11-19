@@ -336,6 +336,15 @@ router.delete("/:id/likes/me", async (req, res) => {
 
 // ---------- 댓글 ----------
 
+// 댓글 응답 모양 맞추기 (author_id는 밖으로 안 보내고 can_delete만 추가)
+function toComment(row, userId) {
+  const { author_id, ...comment } = row;
+  return {
+    ...comment,
+    can_delete: Boolean(userId && author_id && String(author_id) === String(userId))
+  };
+}
+
 // 6. 댓글 목록 (GET /api/problems/:id/comments)
 router.get("/:id/comments", async (req, res) => {
   const { id } = req.params;
@@ -348,13 +357,13 @@ router.get("/:id/comments", async (req, res) => {
 
     const { data, error } = await supabase
       .from("comments")
-      .select("id, content, author_name, created_at")
+      .select("id, content, author_name, created_at, author_id")
       .eq("problem_id", Number(id))
       .order("created_at", { ascending: true })
       .limit(200);
     if (error) throw error;
 
-    res.json(data);
+    res.json(data.map((row) => toComment(row, req.user?.id)));
   } catch (error) {
     serverError(res, error);
   }
@@ -362,6 +371,8 @@ router.get("/:id/comments", async (req, res) => {
 
 // 7. 댓글 작성 (POST /api/problems/:id/comments)
 router.post("/:id/comments", async (req, res) => {
+  if (!req.user?.id) return res.status(401).json({ error: "로그인 후 댓글을 작성해주세요." });
+
   const { id } = req.params;
   const { content } = req.body ?? {};
   if (!isValidId(id)) return res.status(400).json({ error: "잘못된 ID입니다." });
@@ -372,8 +383,13 @@ router.post("/:id/comments", async (req, res) => {
 
   const { data, error } = await supabase
     .from("comments")
-    .insert({ problem_id: Number(id), content: content.trim(), author_name: req.user.name })
-    .select("id, content, author_name, created_at")
+    .insert({
+      problem_id: Number(id),
+      content: content.trim(),
+      author_name: req.user.name,
+      author_id: req.user.id
+    })
+    .select("id, content, author_name, created_at, author_id")
     .single();
 
   if (error?.code === "23503") {
@@ -381,7 +397,48 @@ router.post("/:id/comments", async (req, res) => {
   }
   if (error) return serverError(res, error);
 
-  res.status(201).json(data);
+  res.status(201).json(toComment(data, req.user.id));
+});
+
+// 8. 댓글 삭제 (DELETE /api/problems/:id/comments/:commentId)
+router.delete("/:id/comments/:commentId", async (req, res) => {
+  if (!req.user?.id) return res.status(401).json({ error: "로그인 후 댓글을 삭제해주세요." });
+
+  const { id, commentId } = req.params;
+  if (!isValidId(id) || !isValidId(commentId)) {
+    return res.status(400).json({ error: "잘못된 제보 ID 또는 댓글 ID예요." });
+  }
+
+  try {
+    // 이 제보에 속한 댓글인지 확인
+    const { data: comment, error } = await supabase
+      .from("comments")
+      .select("id, author_id")
+      .eq("id", Number(commentId))
+      .eq("problem_id", Number(id))
+      .maybeSingle();
+    if (error) throw error;
+
+    if (!comment) {
+      return res.status(404).json({ error: "해당 제보에서 댓글을 찾을 수 없어요." });
+    }
+    if (!comment.author_id || String(comment.author_id) !== String(req.user.id)) {
+      return res.status(403).json({ error: "본인이 작성한 댓글만 삭제할 수 있어요." });
+    }
+
+    // 작성자 조건을 한 번 더 걸어서 삭제 (안전장치)
+    const { error: deleteError } = await supabase
+      .from("comments")
+      .delete()
+      .eq("id", comment.id)
+      .eq("author_id", req.user.id);
+    if (deleteError) throw deleteError;
+
+    res.status(204).end();
+  } catch (error) {
+    console.error("[ERROR] comment delete:", error.code || error.message);
+    res.status(503).json({ error: "댓글을 삭제하지 못했어요. 잠시 후 다시 시도해주세요." });
+  }
 });
 
 router.delete('/:id',createDeleteProblemHandler(supabase));
