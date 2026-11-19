@@ -16,7 +16,7 @@ function createAuthRouter(db,makeClient=isolatedAuthClient){
   const authUser=data.user;
   const {data:profile,error}=await db.from('profiles').select('id,name,email').eq('id',authUser.id).maybeSingle();
   if(error)console.error('Profile lookup failed:',error.code||'PROFILE_ERROR');
-  const user=publicUser({id:authUser.id,email:authUser.email,name:profile?.name||authUser.user_metadata?.name||authUser.email});
+  const user=publicUser({id:authUser.id,email:authUser.email,name:authUser.user_metadata?.needit_profile?.name||profile?.name||authUser.user_metadata?.name||authUser.email});
   const accessToken=crypto.randomBytes(32).toString('hex');
   const expiresAt=Math.min(Date.now()+ttl,data.session.expires_at?data.session.expires_at*1000:Date.now()+ttl);
   sessions.set(accessToken,{user,expiresAt});
