@@ -36,6 +36,7 @@ function createProjectsRouter(db) {
   res.json((await decorate(rows,req.user)).map(p=>({...p,problem_ids:links.filter(l=>String(l.project_id)===String(p.id)).map(l=>l.problem_id)})));
  }catch(e){next(e);}});
  router.post('/',login,async(req,res,next)=>{try{
+  if(Object.prototype.hasOwnProperty.call(req.body||{},'problem_id')){
   const draft=parseAdoption(req.body);
   if(!draft)return res.status(400).json({error:`입력값을 확인해주세요. 제목 ${TITLE_MAX}자, 설명 ${DESCRIPTION_MAX}자 이내이고 기능은 최대 ${FEATURES_MAX}개, 항목당 ${FEATURE_MAX}자까지 입력할 수 있어요.`});
   // Plan ownership, project insert and problem link are checked/written in one DB transaction.
@@ -45,7 +46,14 @@ function createProjectsRouter(db) {
   if(data?.status==='forbidden')return res.status(403).json({error:'이 불편함에 대한 내 AI 기획안이 있어야 프로젝트를 등록할 수 있어요.'});
   if(data?.status!=='created'||!data.project)return res.status(503).json({error:'등록 결과를 확인하지 못했어요. 프로젝트 목록을 다시 불러와 확인해주세요.'});
   const [project]=await decorate([data.project],req.user);
-  res.status(201).json({...project,problem_ids:[draft.problemId]});
+  return res.status(201).json({...project,problem_ids:[draft.problemId]});
+  }
+  const {title,description,deployment_url,usage_guide='',team_name='',github_url=''}=req.body||{};
+  const url=safeUrl(deployment_url);const github=safeUrl(github_url);
+  if(typeof title!=='string'||!title.trim()||title.trim().length>100||typeof description!=='string'||!description.trim()||description.trim().length>3000||typeof deployment_url!=='string'||!url||github===null||typeof github_url!=='string'||typeof usage_guide!=='string'||usage_guide.length>5000||typeof team_name!=='string'||team_name.length>100)return res.status(400).json({error:'서비스 이름, 소개, 올바른 서비스 주소를 입력해주세요.'});
+  // Register a completed service. Ownership always comes from the verified session.
+  const row=await result(db.from('projects').insert({title:title.trim(),summary:description.trim().slice(0,300),description:description.trim(),status:'개발 중',progress:100,release_status:statuses[3],deployment_url:url,usage_guide:usage_guide.trim(),team_name:team_name.trim(),github_url:github,owner_id:req.user.id,released_at:new Date().toISOString()}).select().single());
+  res.status(201).json({...((await decorate([row],req.user))[0]),problem_ids:[],related_problems:[],feedback:[]});
  }catch(e){next(e);}});
  router.get('/notifications',login,async(req,res,next)=>{try{
   const favorites=await result(db.from('project_favorites').select('project_id').eq('user_id',req.user.id));
@@ -76,6 +84,16 @@ function createProjectsRouter(db) {
   if(release_status===statuses[3]&&p.release_status!==statuses[3])patch.released_at=new Date().toISOString();
   const saved=await result(db.from('projects').update(patch).eq('id',p.id).eq('owner_id',req.user.id).select().single());
   res.json((await decorate([saved],req.user))[0]);
+ }catch(e){next(e);}});
+ router.post('/:id/unpublish',login,async(req,res,next)=>{try{
+  const p=await project(req.params.id);if(!p)return res.status(404).json({error:'프로젝트를 찾을 수 없어요.'});
+  if(p.owner_id!==req.user.id)return res.status(403).json({error:'프로젝트 담당자만 공개를 취소할 수 있어요.'});
+  if(p.release_status!==statuses[3])return res.json((await decorate([p],req.user))[0]);
+  const saved=await result(db.from('projects').update({release_status:statuses[2],released_at:null}).eq('id',p.id).eq('owner_id',req.user.id).eq('release_status',statuses[3]).select().maybeSingle());
+  const current=saved||await project(p.id);
+  if(!current)return res.status(404).json({error:'프로젝트를 찾을 수 없어요.'});
+  if(current.owner_id!==req.user.id)return res.status(403).json({error:'프로젝트 담당자만 공개를 취소할 수 있어요.'});
+  res.json((await decorate([current],req.user))[0]);
  }catch(e){next(e);}});
  router.put('/:id/favorite',login,async(req,res,next)=>{try{
   if(typeof req.body?.interested!=='boolean')return res.status(400).json({error:'관심 등록 여부를 확인해주세요.'});
