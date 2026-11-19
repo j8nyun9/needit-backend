@@ -98,7 +98,7 @@ function createProjectsRouter(db) {
   }
   const saved = await result(db.from('projects').insert({
     title: title.trim(), description: description.trim(), owner_id: req.user.id,
-    status: '기획 중', release_status: '기획 중'
+    release_status: '기획 중'
   }).select().single());
   if (problemId) await result(db.from('project_problems').insert({ project_id: saved.id, problem_id: Number(problemId) }));
   await result(db.from('project_members').insert({ project_id: saved.id, user_id: req.user.id, role: 'owner' }));

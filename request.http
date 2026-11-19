@@ -1,12 +1,67 @@
-### 등록
-POST http://localhost:4000/api/problems
+### 0. 불편함 목록 (id 확인용, 로그인 없이 가능)
+GET http://localhost:4000/api/problems
+
+### 1. 로그인
+# @name login
+POST http://localhost:4000/api/auth/login
 Content-Type: application/json
 
-{
-  "title": "택배 도착 알림이 너무 늦어요",
-  "content": "문 앞에 놓인 지 1시간 뒤에야 알림이 와요",
-  "category": "생활"
-}
+{ "email": "{{$dotenv TEST_EMAIL}}", "password": "{{$dotenv TEST_PASSWORD}}" }
 
-### 조회
-GET http://localhost:4000/api/problems
+###
+@token = {{login.response.body.accessToken}}
+
+### 불편함 등록 (필요할 때만, 누를 때마다 글이 하나씩 생김)
+POST http://localhost:4000/api/problems
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "택배 도착 알림이 너무 늦어요", "content": "문 앞에 놓인 지 1시간 뒤에야 알림이 와요", "category": "편의·복지" }
+
+### 2. 프로젝트 등록 (누를 때마다 프로젝트가 하나씩 생김)
+# @name newProject
+POST http://localhost:4000/api/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "공지 모아보기", "description": "학부 공지를 한곳에", "related_problem_id": 34 }
+
+###
+@pid =5
+
+### 3. 진행률·예정일·배포 주소 수정
+PATCH http://localhost:4000/api/projects/{{pid}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "progress": 40, "progress_started_on": "2026-11-19", "expected_completion_date": "2026-11-23", "deployment_url": "https://example.com" }
+
+### 4. 불편함 기준 조회
+GET http://localhost:4000/api/projects?related_problem_id=34
+Authorization: Bearer {{token}}
+
+### 5. 의견 등록
+# @name newFeedback
+POST http://localhost:4000/api/projects/{{pid}}/feedback
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "content": "써 보니 편해요" }
+
+###
+@fid = {{newFeedback.response.body.id}}
+
+### 6. 의견 공감
+PUT http://localhost:4000/api/projects/{{pid}}/feedback/{{fid}}/reaction
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reaction": "like" }
+
+### 7. 상세 조회 (반응 수 확인)
+GET http://localhost:4000/api/projects/{{pid}}
+Authorization: Bearer {{token}}
+
+### 8. 마이페이지 (형 API)
+GET http://localhost:4000/api/account
+Authorization: Bearer {{token}}
