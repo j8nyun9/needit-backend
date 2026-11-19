@@ -4,6 +4,7 @@ const { generatePlan } = require("../services/aiPlanner");
 
 const {hidePlan,personalRow,personalRows,savePersonalPlan}=require('../services/personalPlans');
 const {empathySummary,persistedLikesCount}=require('../services/problemEmpathies');
+const {ownedProblem,createDeleteProblemHandler}=require('../services/problemOwnership');
 const router = express.Router();
 router.use((req,res,next)=>{res.set('Cache-Control','private, no-store');res.vary('Authorization');next();});
 
@@ -106,7 +107,7 @@ router.get("/", async (req, res) => {
     const votes = await empathySummary(supabase,data.map(p=>p.id),getVoterId(req));
     const likedIds = new Set(data.filter(p=>votes.get(String(p.id))?.liked).map(p=>p.id));
     const visible=await personalRows(supabase,data,req.user?.id);
-    res.json(visible.map(row=>toListItem({...row,likes_count:votes.get(String(row.id))?.count??0},likedIds)));
+    res.json(visible.map(row=>ownedProblem(toListItem({...row,likes_count:votes.get(String(row.id))?.count??0},likedIds),req.user?.id)));
   } catch (error) {
     serverError(res, error);
   }
@@ -114,6 +115,7 @@ router.get("/", async (req, res) => {
 
 // 2. 등록 (POST /api/problems)
 router.post("/", async (req, res) => {
+    if(!req.user?.id)return res.status(401).json({error:'로그인 후 불편함을 등록해주세요.'});
     const { title, content } = req.body ?? {};
     const category = normalizeCategory(req.body?.category);
 
@@ -135,13 +137,13 @@ router.post("/", async (req, res) => {
 
   const { data, error } = await supabase
     .from("problems")
-    .insert({ title: title.trim(), content: content.trim(), category: category.trim() })
+    .insert({ title: title.trim(), content: content.trim(), category: category.trim(),author_id:req.user.id })
     .select()
     .single();
 
   if (error) return serverError(res, error);
 
-  res.status(201).json(hidePlan(data));
+  res.status(201).json(ownedProblem(hidePlan(data),req.user.id));
 });
 
 // 3. 상세 조회 (GET /api/problems/:id)
@@ -169,7 +171,7 @@ router.get("/:id", async (req, res) => {
     const likedIds=new Set(vote?.liked?[problem.id]:[]);
 
     res.json({
-      ...toListItem({...((await personalRows(supabase,[problem],req.user?.id))[0]),likes_count:vote?.count??0}, likedIds),
+      ...ownedProblem(toListItem({...((await personalRows(supabase,[problem],req.user?.id))[0]),likes_count:vote?.count??0}, likedIds),req.user?.id),
       project_id: project_problems?.[0]?.project_id ?? null
     });
   } catch (error) {
@@ -251,7 +253,7 @@ router.post("/:id/plan", async (req, res) => {
       console.error('Personal plan save failed:',error.code||'DB_ERROR');
       return res.status(503).json({error:'개인 기획안을 저장하지 못했어요. 백엔드에 problem_ai_plans 테이블이 준비됐는지 확인해주세요.'});
     }
-    res.json({ ...personalRow(result.row,result.row.ai_plan,req.user.id), ai_status: "success" });
+    res.json({ ...ownedProblem(personalRow(result.row,result.row.ai_plan,req.user.id),req.user.id), ai_status: "success" });
   } finally {
     inFlight.delete(id);
   }
@@ -382,4 +384,5 @@ router.post("/:id/comments", async (req, res) => {
   res.status(201).json(data);
 });
 
+router.delete('/:id',createDeleteProblemHandler(supabase));
 module.exports = router;

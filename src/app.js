@@ -75,6 +75,7 @@ const problemRoutes = require("./routes/problems");
 app.use("/api/problems", problemRoutes);
 app.use("/api/projects", require("./routes/projects"));
 app.use("/api/activities", require("./routes/activities"));
+app.use('/api/account', require('./services/account').createAccountRouter(supabase));
 
 
 app.listen(PORT, "0.0.0.0", () => {
