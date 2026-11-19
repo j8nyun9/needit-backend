@@ -21,6 +21,14 @@ function createProjectsRouter(db) {
   const links=await result(db.from('project_problems').select('project_id,problem_id'));
   res.json((await decorate(rows,req.user)).map(p=>({...p,problem_ids:links.filter(l=>String(l.project_id)===String(p.id)).map(l=>l.problem_id)})));
  }catch(e){next(e);}});
+ router.post('/',login,async(req,res,next)=>{try{
+  const {title,description,deployment_url,usage_guide='',team_name='',github_url=''}=req.body||{};
+  const url=safeUrl(deployment_url);const github=safeUrl(github_url);
+  if(typeof title!=='string'||!title.trim()||title.trim().length>100||typeof description!=='string'||!description.trim()||description.trim().length>3000||typeof deployment_url!=='string'||!url||github===null||typeof github_url!=='string'||typeof usage_guide!=='string'||usage_guide.length>5000||typeof team_name!=='string'||team_name.length>100)return res.status(400).json({error:'서비스 이름, 소개, 올바른 서비스 주소를 입력해주세요.'});
+  // Register a completed service. Ownership always comes from the verified session.
+  const row=await result(db.from('projects').insert({title:title.trim(),summary:description.trim().slice(0,300),description:description.trim(),status:'개발 중',progress:100,release_status:statuses[3],deployment_url:url,usage_guide:usage_guide.trim(),team_name:team_name.trim(),github_url:github,owner_id:req.user.id,released_at:new Date().toISOString()}).select().single());
+  res.status(201).json({...((await decorate([row],req.user))[0]),problem_ids:[],related_problems:[],feedback:[]});
+ }catch(e){next(e);}});
  router.get('/notifications',login,async(req,res,next)=>{try{
   const favorites=await result(db.from('project_favorites').select('project_id').eq('user_id',req.user.id));
   const empathy=await result(db.from('empathies').select('problem_id').eq('voter_id',req.user.id));
@@ -50,6 +58,16 @@ function createProjectsRouter(db) {
   if(release_status===statuses[3]&&p.release_status!==statuses[3])patch.released_at=new Date().toISOString();
   const saved=await result(db.from('projects').update(patch).eq('id',p.id).eq('owner_id',req.user.id).select().single());
   res.json((await decorate([saved],req.user))[0]);
+ }catch(e){next(e);}});
+ router.post('/:id/unpublish',login,async(req,res,next)=>{try{
+  const p=await project(req.params.id);if(!p)return res.status(404).json({error:'프로젝트를 찾을 수 없어요.'});
+  if(p.owner_id!==req.user.id)return res.status(403).json({error:'프로젝트 담당자만 공개를 취소할 수 있어요.'});
+  if(p.release_status!==statuses[3])return res.json((await decorate([p],req.user))[0]);
+  const saved=await result(db.from('projects').update({release_status:statuses[2],released_at:null}).eq('id',p.id).eq('owner_id',req.user.id).eq('release_status',statuses[3]).select().maybeSingle());
+  const current=saved||await project(p.id);
+  if(!current)return res.status(404).json({error:'프로젝트를 찾을 수 없어요.'});
+  if(current.owner_id!==req.user.id)return res.status(403).json({error:'프로젝트 담당자만 공개를 취소할 수 있어요.'});
+  res.json((await decorate([current],req.user))[0]);
  }catch(e){next(e);}});
  router.put('/:id/favorite',login,async(req,res,next)=>{try{
   if(typeof req.body?.interested!=='boolean')return res.status(400).json({error:'관심 등록 여부를 확인해주세요.'});
