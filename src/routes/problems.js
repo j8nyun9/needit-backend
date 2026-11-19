@@ -41,6 +41,7 @@ const COMMENT_MAX = 500;
 
 // 요청 헤더 X-Voter-Id에서 익명 사용자 ID 꺼내기 (로그인 전 임시 방식)
 function getVoterId(req) {
+  if (req.user?.id) return String(req.user.id);
   const value = req.get("X-Voter-Id");
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
