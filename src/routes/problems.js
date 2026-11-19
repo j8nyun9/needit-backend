@@ -3,6 +3,7 @@ const supabase = require("../config/supabase");
 const { generatePlan } = require("../services/aiPlanner");
 
 const {hidePlan,personalRow,personalRows,savePersonalPlan}=require('../services/personalPlans');
+const {empathySummary,persistedLikesCount}=require('../services/problemEmpathies');
 const router = express.Router();
 router.use((req,res,next)=>{res.set('Cache-Control','private, no-store');res.vary('Authorization');next();});
 
@@ -68,11 +69,11 @@ async function getLikedIds(voterId, problemIds) {
 async function getLikesCount(problemId) {
   const { data, error } = await supabase
     .from("problems")
-    .select("likes_count")
+    .select("id")
     .eq("id", problemId)
     .maybeSingle();
   if (error) throw error;
-  return data ? data.likes_count ?? 0 : null;
+  return data ? persistedLikesCount(supabase,problemId) : null;
 }
 
 // 명세의 ProblemListItem 형태로 맞추기
@@ -102,9 +103,10 @@ router.get("/", async (req, res) => {
       .limit(100);
     if (error) throw error;
 
-    const likedIds = await getLikedIds(getVoterId(req), data.map((p) => p.id));
+    const votes = await empathySummary(supabase,data.map(p=>p.id),getVoterId(req));
+    const likedIds = new Set(data.filter(p=>votes.get(String(p.id))?.liked).map(p=>p.id));
     const visible=await personalRows(supabase,data,req.user?.id);
-    res.json(visible.map((row) => toListItem(row, likedIds)));
+    res.json(visible.map(row=>toListItem({...row,likes_count:votes.get(String(row.id))?.count??0},likedIds)));
   } catch (error) {
     serverError(res, error);
   }
@@ -162,10 +164,12 @@ router.get("/:id", async (req, res) => {
     }
 
     const { project_problems, ...problem } = data;
-    const likedIds = await getLikedIds(getVoterId(req), [problem.id]);
+    const votes=await empathySummary(supabase,[problem.id],getVoterId(req));
+    const vote=votes.get(String(problem.id));
+    const likedIds=new Set(vote?.liked?[problem.id]:[]);
 
     res.json({
-      ...toListItem((await personalRows(supabase,[problem],req.user?.id))[0], likedIds),
+      ...toListItem({...((await personalRows(supabase,[problem],req.user?.id))[0]),likes_count:vote?.count??0}, likedIds),
       project_id: project_problems?.[0]?.project_id ?? null
     });
   } catch (error) {
