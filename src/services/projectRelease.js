@@ -20,6 +20,20 @@ function parseAdoption(body){
  return {problemId,title:t,description:d,features:list};
 }
 async function result(query) { const {data,error}=await query; if(error) throw error; return data; }
+// 일정 필드 검사: YYYY-MM-DD 형식이면서 실제로 있는 날짜
+function isCalendarDate(v){
+ if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v))return false;
+ const d=new Date(v+'T00:00:00Z');
+ return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===v;
+}
+// 둘 다 null이면 일정 지우기, 둘 다 있으면 완료일 >= 기준일. 그 외는 null(잘못된 값)
+function parseSchedule(body){
+ const start=body?.progress_started_on??null, end=body?.expected_completion_date??null;
+ if(start===null&&end===null)return {progress_started_on:null,expected_completion_date:null};
+ if(!isCalendarDate(start)||!isCalendarDate(end)||end<start)return null;
+ return {progress_started_on:start,expected_completion_date:end};
+}
+
 function createProjectsRouter(db) {
  const router=express.Router();
  router.use((req,res,next)=>{res.set('Cache-Control','private, no-store');res.vary('Authorization');next();});
@@ -57,13 +71,24 @@ function createProjectsRouter(db) {
   if(Object.prototype.hasOwnProperty.call(req.body||{},'problem_id')){
   const draft=parseAdoption(req.body);
   if(!draft)return res.status(400).json({error:`입력값을 확인해주세요. 제목 ${TITLE_MAX}자, 설명 ${DESCRIPTION_MAX}자 이내이고 기능은 최대 ${FEATURES_MAX}개, 항목당 ${FEATURE_MAX}자까지 입력할 수 있어요.`});
+    // 선택 필드: 완료 예정일·기준일 (둘 다 없으면 일정 없이 등록)
+  const body=req.body||{};
+  const wantsSchedule=body.progress_started_on!=null||body.expected_completion_date!=null;
+  const schedule=wantsSchedule?parseSchedule(body):null;
+  if(wantsSchedule&&!schedule)return res.status(400).json({error:'날짜는 YYYY-MM-DD 형식이고, 완료 예정일은 기준일과 같거나 이후여야 해요.'});
+
   // Plan ownership, project insert and problem link are checked/written in one DB transaction.
   const {data,error}=await db.rpc('create_project_from_problem',{p_user_id:req.user.id,p_problem_id:draft.problemId,p_title:draft.title,p_description:draft.description,p_features:draft.features});
   if(error){console.error('Project adoption failed:',error.code||'DB_ERROR');return res.status(503).json({error:'프로젝트를 등록하지 못했어요. 잠시 후 다시 시도해주세요. 계속되면 프로젝트 채택 DB 설정을 확인해주세요.'});}
   if(data?.status==='not_found')return res.status(404).json({error:'원본 불편함을 찾을 수 없어요.'});
   if(data?.status==='forbidden')return res.status(403).json({error:'이 불편함에 대한 내 AI 기획안이 있어야 프로젝트를 등록할 수 있어요.'});
   if(data?.status!=='created'||!data.project)return res.status(503).json({error:'등록 결과를 확인하지 못했어요. 프로젝트 목록을 다시 불러와 확인해주세요.'});
-  const [project]=await decorate([data.project],req.user);
+  let created=data.project;
+  if(schedule){
+   created=await result(db.from('projects').update(schedule).eq('id',created.id).select('*').single());
+  }
+  const [project]=await decorate([created],req.user);
+
   return res.status(201).json({...project,problem_ids:[draft.problemId]});
   }
   if(!Object.prototype.hasOwnProperty.call(req.body||{},'deployment_url')){
@@ -151,7 +176,7 @@ function createProjectsRouter(db) {
   // 프로젝트 등록 (POST /api/projects)
 
  // 진행률·예정일·배포 주소 수정 (PATCH /api/projects/:id)
- const validDate = v => v === null || (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)));
+ const validDate = v => v === null || isCalendarDate(v);
  router.patch('/:id', login, async (req, res, next) => { try {
   const p = await project(req.params.id); if (!p) return res.sendStatus(404);
   if (p.owner_id !== req.user.id) return res.status(403).json({ error: '프로젝트 담당자만 수정할 수 있어요.' });
