@@ -19,6 +19,7 @@ function parseAdoption(body){
  if(list.length>FEATURES_MAX||list.some(f=>!f||f.length>FEATURE_MAX))return null;
  return {problemId,title:t,description:d,features:list};
 }
+function canReceiveFeedback(p){return p.release_status===statuses[3];}
 async function result(query) { const {data,error}=await query; if(error) throw error; return data; }
 // 일정 필드 검사: YYYY-MM-DD 형식이면서 실제로 있는 날짜
 function isCalendarDate(v){
@@ -46,7 +47,7 @@ function createProjectsRouter(db) {
   const has = (list, id) => list.some(r => String(r.project_id) === String(id));
   return rows.map(({ owner_id, ...p }) => {
     const mine = Boolean(user && owner_id === user.id);
-    return { ...p, can_edit: mine, interested: has(favorites, p.id), is_bookmarked: has(favorites, p.id), is_member: mine || has(members, p.id) };
+    return { ...p, can_feedback: canReceiveFeedback(p), can_edit: mine, interested: has(favorites, p.id), is_bookmarked: has(favorites, p.id), is_member: mine || has(members, p.id) };
   });
  }
 
@@ -73,8 +74,10 @@ function createProjectsRouter(db) {
   if(!draft)return res.status(400).json({error:`입력값을 확인해주세요. 제목 ${TITLE_MAX}자, 설명 ${DESCRIPTION_MAX}자 이내이고 기능은 최대 ${FEATURES_MAX}개, 항목당 ${FEATURE_MAX}자까지 입력할 수 있어요.`});
     // 선택 필드: 완료 예정일·기준일 (둘 다 없으면 일정 없이 등록)
   const body=req.body||{};
-  const wantsSchedule=body.progress_started_on!=null||body.expected_completion_date!=null;
-  const schedule=wantsSchedule?parseSchedule(body):null;
+  const wantsSchedule=body.expected_completion_date!=null;
+  if(body.release_status!==undefined&&!statuses.includes(body.release_status))return res.status(400).json({error:'프로젝트 상태를 확인해주세요.'});
+  if(body.release_status===statuses[3]&&!safeUrl(body.deployment_url))return res.status(400).json({error:'운영 중인 서비스 주소를 입력해주세요.'});
+  const schedule=wantsSchedule&&isCalendarDate(body.expected_completion_date)?{expected_completion_date:body.expected_completion_date}:null;
   if(wantsSchedule&&!schedule)return res.status(400).json({error:'날짜는 YYYY-MM-DD 형식이고, 완료 예정일은 기준일과 같거나 이후여야 해요.'});
 
   // Plan ownership, project insert and problem link are checked/written in one DB transaction.
@@ -169,9 +172,11 @@ function createProjectsRouter(db) {
  router.post('/:id/feedback',login,async(req,res,next)=>{try{
     const {kind='review',content}=req.body||{};
   if(!['review','bug'].includes(kind)||typeof content!=='string'||!content.trim()||content.length>1000)return res.status(400).json({error:'종류와 내용을 확인해주세요. 최대 1,000자까지 작성할 수 있어요.'});
-  if(!await project(req.params.id))return res.sendStatus(404);
+  const p=await project(req.params.id);
+  if(!p)return res.sendStatus(404);
+  if(!canReceiveFeedback(p))return res.status(403).json({error:'완료된 프로젝트에만 피드백을 작성할 수 있어요.'});
   const row=await result(db.from('project_feedback').insert({project_id:req.params.id,user_id:req.user.id,author_name:req.user.name,kind,content:content.trim()}).select('id,kind,content,author_name,created_at').single());
-  res.status(201).json(row);
+  res.status(201).json({...row,can_edit:true,can_delete:true});
  }catch(e){next(e);}});
   // 프로젝트 등록 (POST /api/projects)
 
@@ -181,16 +186,16 @@ function createProjectsRouter(db) {
   const p = await project(req.params.id); if (!p) return res.sendStatus(404);
   if (p.owner_id !== req.user.id) return res.status(403).json({ error: '프로젝트 담당자만 수정할 수 있어요.' });
   const body = req.body || {}; const patch = {};
-  if ('progress' in body) {
-    if (!Number.isInteger(body.progress) || body.progress < 0 || body.progress > 100)
-      return res.status(400).json({ error: '진행률은 0~100 사이 정수로 입력해주세요.' });
-    patch.progress = body.progress;
+  if ('expected_completion_date' in body) {
+    if(body.expected_completion_date!==null&&!isCalendarDate(body.expected_completion_date))return res.status(400).json({error:'올바른 개발 완료 예정일을 선택해주세요.'});
+    patch.expected_completion_date=body.expected_completion_date;
   }
-  if ('progress_started_on' in body || 'expected_completion_date' in body) {
-    const s = body.progress_started_on ?? null, e = body.expected_completion_date ?? null;
-    if (!validDate(s) || !validDate(e) || (s === null) !== (e === null) || (s && e < s))
-      return res.status(400).json({ error: '날짜는 YYYY-MM-DD 형식으로, 시작일과 예정일을 함께 보내주세요.' });
-    patch.progress_started_on = s; patch.expected_completion_date = e;
+  if ('release_status' in body) {
+    if(!statuses.includes(body.release_status))return res.status(400).json({error:'프로젝트 상태를 확인해주세요.'});
+    if(body.release_status===statuses[3]&&!safeUrl(body.deployment_url??p.deployment_url))return res.status(400).json({error:'서비스 운영 중으로 변경하려면 서비스 주소를 등록해주세요.'});
+    patch.release_status=body.release_status;
+    if(body.release_status===statuses[3]&&p.release_status!==statuses[3])patch.released_at=new Date().toISOString();
+    if(body.release_status!==statuses[3])patch.released_at=null;
   }
   if ('deployment_url' in body) {
     const url = safeUrl(body.deployment_url);
@@ -205,12 +210,12 @@ function createProjectsRouter(db) {
 
  // 의견 목록 + 반응 수
  async function feedbackWithReactions(projectId, user) {
-  const rows = await result(db.from('project_feedback').select('id,kind,content,author_name,created_at').eq('project_id', projectId).order('created_at', { ascending: false }).limit(100));
+  const rows = await result(db.from('project_feedback').select('id,kind,content,author_name,created_at,user_id').eq('project_id', projectId).order('created_at', { ascending: false }).limit(100));
   if (!rows.length) return [];
   const all = await result(db.from('project_feedback_reactions').select('feedback_id,user_id,reaction').in('feedback_id', rows.map(r => r.id)));
-  return rows.map(r => {
+  return rows.map(({user_id,...r}) => {
     const list = all.filter(x => String(x.feedback_id) === String(r.id));
-    return { ...r, author: r.author_name,
+    return { ...r, can_edit:Boolean(user&&user_id===user.id),can_delete:Boolean(user&&user_id===user.id), author: r.author_name,
       like_count: list.filter(x => x.reaction === 'like').length,
       dislike_count: list.filter(x => x.reaction === 'dislike').length,
       my_reaction: user ? (list.find(x => x.user_id === user.id)?.reaction ?? null) : null };
@@ -222,6 +227,29 @@ function createProjectsRouter(db) {
   if (!await project(req.params.id)) return res.status(404).json({ error: '프로젝트를 찾을 수 없어요.' });
   res.json(await feedbackWithReactions(req.params.id, req.user));
  } catch (e) { next(e); } });
+
+
+ async function ownedFeedback(req,res){
+  if(!/^\d+$/.test(req.params.feedbackId)){res.status(400).json({error:'잘못된 피드백 ID예요.'});return null;}
+  const row=await result(db.from('project_feedback').select('id,user_id').eq('id',req.params.feedbackId).eq('project_id',req.params.id).maybeSingle());
+  if(!row){res.status(404).json({error:'피드백을 찾을 수 없어요.'});return null;}
+  if(row.user_id!==req.user.id){res.status(403).json({error:'본인이 작성한 후기·오류 제보만 수정하거나 삭제할 수 있어요.'});return null;}
+  return row;
+ }
+ router.patch('/:id/feedback/:feedbackId',login,async(req,res,next)=>{try{
+  if(!await ownedFeedback(req,res))return;
+  const {kind,content}=req.body||{};
+  if(!['review','bug'].includes(kind)||typeof content!=='string'||!content.trim()||content.length>1000)return res.status(400).json({error:'종류와 내용을 확인해주세요. 최대 1,000자까지 작성할 수 있어요.'});
+  const row=await result(db.from('project_feedback').update({kind,content:content.trim()}).eq('id',req.params.feedbackId).eq('project_id',req.params.id).eq('user_id',req.user.id).select('id,kind,content,author_name,created_at').maybeSingle());
+  if(!row)return res.sendStatus(404);
+  res.json({...row,can_edit:true,can_delete:true});
+ }catch(e){next(e);}});
+ router.delete('/:id/feedback/:feedbackId',login,async(req,res,next)=>{try{
+  if(!await ownedFeedback(req,res))return;
+  const row=await result(db.from('project_feedback').delete().eq('id',req.params.feedbackId).eq('project_id',req.params.id).eq('user_id',req.user.id).select('id').maybeSingle());
+  if(!row)return res.sendStatus(404);
+  res.sendStatus(204);
+ }catch(e){next(e);}});
 
  // PUT /api/projects/:id/feedback/:feedbackId/reaction  { reaction: "like" | "dislike" | null }
  router.put('/:id/feedback/:feedbackId/reaction', login, async (req, res, next) => { try {
