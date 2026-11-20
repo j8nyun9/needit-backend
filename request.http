@@ -22,55 +22,6 @@ Content-Type: application/json
 ###
 @probId = {{newProblem.response.body.id}}
 
-
-### 2. 프로젝트 등록 (누를 때마다 프로젝트가 하나씩 생김)
-# @name newProject
-POST http://localhost:4000/api/projects
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{ "title": "공지 모아보기", "description": "학부 공지를 한곳에", "related_problem_id": 34 }
-
-###
-@pid = {{newProject.response.body.id}}
-
-### 3. 진행률·예정일·배포 주소 수정
-PATCH http://localhost:4000/api/projects/{{pid}}
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{ "progress": 40, "progress_started_on": "2026-11-19", "expected_completion_date": "2026-11-23", "deployment_url": "https://example.com" }
-
-### 4. 불편함 기준 조회
-GET http://localhost:4000/api/projects?related_problem_id=34
-Authorization: Bearer {{token}}
-
-### 5. 의견 등록
-# @name newFeedback
-POST http://localhost:4000/api/projects/{{pid}}/feedback
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{ "content": "써 보니 편해요" }
-
-###
-@fid = {{newFeedback.response.body.id}}
-
-### 6. 의견 공감
-PUT http://localhost:4000/api/projects/{{pid}}/feedback/{{fid}}/reaction
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{ "reaction": "like" }
-
-### 7. 상세 조회 (반응 수 확인)
-GET http://localhost:4000/api/projects/{{pid}}
-Authorization: Bearer {{token}}
-
-### 8. 마이페이지 (형 API)
-GET http://localhost:4000/api/account
-Authorization: Bearer {{token}}
-
 ### 9. 댓글 등록
 # @name newComment
 POST http://localhost:4000/api/problems/{{probId}}/comments
@@ -90,7 +41,117 @@ Authorization: Bearer {{token}}
 DELETE http://localhost:4000/api/problems/{{probId}}/comments/{{cid}}
 Authorization: Bearer {{token}}
 
-### 12. 테스트 글 정리 (선택, 내가 쓴 글 삭제)
-DELETE http://localhost:4000/api/problems/{{probId}}
+### 13. AI 기획안 만들기 (프로젝트 등록 조건, Gemini 호출)
+POST http://localhost:4000/api/problems/{{probId}}/plan
 Authorization: Bearer {{token}}
 
+### 14. 같은 불편함으로 프로젝트 A 등록
+# @name projectA
+POST http://localhost:4000/api/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "problem_id": {{probId}}, "title": "공지 모아보기 A", "description": "학부 공지를 한곳에", "features": ["공지 알림"] }
+
+###
+@pidA = {{projectA.response.body.id}}
+
+### 15. 같은 불편함으로 프로젝트 B 등록 (예전엔 409, 이제 201)
+POST http://localhost:4000/api/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "problem_id": {{probId}}, "title": "공지 모아보기 B", "description": "다른 방식으로 해결", "features": ["검색"] }
+
+### 16. 상세: project_count 2, project_ids 2개
+GET http://localhost:4000/api/problems/{{probId}}
+Authorization: Bearer {{token}}
+
+### 17. 목록: 해당 글 project_count 2
+GET http://localhost:4000/api/problems
+Authorization: Bearer {{token}}
+
+### 18. 진행률·일정 저장 (200)
+PATCH http://localhost:4000/api/projects/{{pidA}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "progress": 40, "progress_started_on": "2026-11-20", "expected_completion_date": "2026-12-05" }
+
+### 19. 일정 지우기 (200, 날짜 둘 다 null)
+PATCH http://localhost:4000/api/projects/{{pidA}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "progress": 40, "progress_started_on": null, "expected_completion_date": null }
+
+### 20. 잘못된 일정 (400, 완료일이 기준일보다 빠름)
+PATCH http://localhost:4000/api/projects/{{pidA}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "progress": 40, "progress_started_on": "2026-12-05", "expected_completion_date": "2026-11-20" }
+
+### 21. 상세에 일정, can_edit 나오는지
+GET http://localhost:4000/api/projects/{{pidA}}
+Authorization: Bearer {{token}}
+
+### 22. 목록에 일정 나오는지
+GET http://localhost:4000/api/projects
+Authorization: Bearer {{token}}
+
+### 23. 마이페이지 projects[]에 일정 나오는지
+GET http://localhost:4000/api/account
+Authorization: Bearer {{token}}
+
+### 24. 일정 포함해서 프로젝트 등록 (201, 날짜 바로 저장)
+POST http://localhost:4000/api/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "problem_id": {{probId}}, "title": "공지 모아보기 C", "description": "일정 있는 프로젝트", "features": ["알림"], "progress_started_on": "2026-11-20", "expected_completion_date": "2026-12-10" }
+
+### 25. 날짜 하나만 보내기 (400)
+POST http://localhost:4000/api/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "problem_id": {{probId}}, "title": "공지 모아보기 D", "description": "잘못된 일정", "features": [], "expected_completion_date": "2026-12-10" }
+
+### 26. 불편함 수정 (성공 200)
+PATCH http://localhost:4000/api/problems/{{probId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "택배 도착 알림이 늦어요", "content": "택배가 도착한 뒤 한 시간이 지나야 알림이 와요.", "category": "편의·복지" }
+
+### 27. 제목 비우면 400
+PATCH http://localhost:4000/api/problems/{{probId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "", "content": "내용", "category": "편의·복지" }
+
+### 28. 로그인 없이 401
+PATCH http://localhost:4000/api/problems/{{probId}}
+Content-Type: application/json
+
+{ "title": "제목", "content": "내용", "category": "편의·복지" }
+
+### 29. 남의 글 403 (26번 글은 내가 쓴 게 아님)
+PATCH http://localhost:4000/api/problems/26
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "제목", "content": "내용", "category": "편의·복지" }
+
+### 30. 없는 글 404
+PATCH http://localhost:4000/api/problems/999999
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "제목", "content": "내용", "category": "편의·복지" }
+
+### 99. 테스트 글 정리 (모든 테스트 끝나고 마지막에, 내가 쓴 글 삭제)
+DELETE http://localhost:4000/api/problems/{{probId}}
+Authorization: Bearer {{token}}
