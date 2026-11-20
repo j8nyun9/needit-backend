@@ -4,7 +4,7 @@ const express=require('express');
 const {createProjectsRouter,safeUrl}=require('../src/services/projectRelease');
 
 function mockDb(){
- const tables={projects:[{id:1,title:'Seat service',owner_id:'alice',release_status:'개발 중',created_at:'2026-01-01'}],project_favorites:[],project_problems:[{project_id:1,problem_id:7,problems:{id:7,title:'Seats'}}],empathies:[{voter_id:'bob',problem_id:7}],project_feedback:[],project_notification_reads:[]};
+ const tables={projects:[{id:1,title:'Seat service',owner_id:'alice',release_status:'개발 중',created_at:'2026-01-01'}],project_members:[],project_feedback_reactions:[],project_favorites:[],project_problems:[{project_id:1,problem_id:7,problems:{id:7,title:'Seats'}}],empathies:[{voter_id:'bob',problem_id:7}],project_feedback:[],project_notification_reads:[]};
  return {tables,from(table){
   let filters=[],mode='select',payload,single=false;
   const q={select(){return q;},eq(k,v){filters.push(r=>String(r[k])===String(v));return q;},in(k,vs){filters.push(r=>vs.some(v=>String(v)===String(r[k])));return q;},not(k,op,v){filters.push(r=>r[k]!=null);return q;},order(){return q;},limit(){return q;},maybeSingle(){single=true;return q;},single(){single=true;return q;},update(v){mode='update';payload=v;return q;},insert(v){mode='insert';payload=v;return q;},upsert(v){mode='upsert';payload=v;return q;},delete(){mode='delete';return q;},then(resolve,reject){try{
