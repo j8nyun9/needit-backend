@@ -314,6 +314,63 @@ router.put("/:id/likes/me", async (req, res) => {
   }
 });
 
+// ---------- 불편함 수정 ----------
+router.patch('/:id', async (req, res) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ error: '로그인 후 불편함을 수정해주세요.' });
+  }
+  const { id } = req.params;
+  if (!isValidId(id)) {
+    return res.status(400).json({ error: '잘못된 ID입니다.' });
+  }
+
+  const { title, content, category } = req.body || {};
+  const cat = typeof category === 'string' ? normalizeCategory(category.trim()) : null;
+  if (
+    typeof title !== 'string' || typeof content !== 'string' ||
+    !title.trim() || !content.trim() ||
+    title.trim().length > TITLE_MAX || content.trim().length > CONTENT_MAX ||
+    !CATEGORIES.includes(cat)
+  ) {
+    return res.status(400).json({
+      error: `입력값을 확인해주세요. 제목 ${TITLE_MAX}자, 본문 ${CONTENT_MAX}자 이내, 카테고리는 ${CATEGORIES.join(', ')} 중 하나예요.`
+    });
+  }
+
+  try {
+    const { data: found, error: findError } = await supabase
+      .from('problems')
+      .select('id, author_id')
+      .eq('id', Number(id))
+      .maybeSingle();
+    if (findError) throw findError;
+    if (!found) {
+      return res.status(404).json({ error: '해당 불편함을 찾을 수 없습니다.' });
+    }
+    if (!found.author_id || found.author_id !== req.user.id) {
+      return res.status(403).json({ error: '본인이 작성한 불편함만 수정할 수 있어요.' });
+    }
+
+    // 안전장치: 작성자 조건을 한 번 더 걸어서 수정
+    const { data, error } = await supabase
+      .from('problems')
+      .update({ title: title.trim(), content: content.trim(), category: cat })
+      .eq('id', Number(id))
+      .eq('author_id', req.user.id)
+      .select()
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      return res.status(404).json({ error: '해당 불편함을 찾을 수 없습니다.' });
+    }
+
+    const { author_id, ...problem } = ownedProblem(hidePlan(data), req.user.id);
+    res.json(problem);
+  } catch (error) {
+    serverError(res, error);
+  }
+});
+
 // 5. 공감 취소 (DELETE /api/problems/:id/likes/me)
 router.delete("/:id/likes/me", async (req, res) => {
   const { id } = req.params;
