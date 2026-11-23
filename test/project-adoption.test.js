@@ -17,9 +17,10 @@ function mockDb(){
    state.projects.push(project);state.links.push({project_id:project.id,problem_id:args.p_problem_id});
    return Promise.resolve({data:{status:'created',project},error:null});
   },
-  from(table){const filters={};let single=false;const q={select:()=>q,eq:(key,value)=>{filters[key]=value;return q;},maybeSingle:()=>{single=true;return q;},then:(resolve,reject)=>{
+  from(table){const filters={};let single=false,payload=null;const q={select:()=>q,eq:(key,value)=>{filters[key]=value;return q;},update:value=>{payload=value;return q;},single:()=>{single=true;return q;},maybeSingle:()=>{single=true;return q;},then:(resolve,reject)=>{
    const saved=state.plans.find(([user,id])=>user===filters.user_id&&id===filters.problem_id);
-   const data=table==='problem_ai_plans'?(saved?{ai_plan:{swCategory:saved[2]||'direct'}}:null):[];
+   const project=state.projects.find(p=>String(p.id)===String(filters.id));if(table==='projects'&&project&&payload)Object.assign(project,payload);
+   const data=table==='problem_ai_plans'?(saved?{ai_plan:{swCategory:saved[2]||'direct'}}:null):table==='projects'&&single?project:[];
    return Promise.resolve({data,error:null}).then(resolve,reject);
   }};return q;}};
 }
@@ -39,9 +40,12 @@ test('POST /projects status codes and single adoption',async t=>{
  const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>server.close());
  const post=(user,body)=>fetch(`http://127.0.0.1:${server.address().port}/projects`,{method:'POST',headers:{'Content-Type':'application/json',...(user?{'x-user':user}:{})},body:JSON.stringify(body)});
  const body={problem_id:34,title:'수강계획서 비교 서비스',description:'분반별 비교',features:['과목명 검색']};
+ body.expected_completion_date='2099-12-31';
  assert.equal((await post(null,body)).status,401);
  assert.equal((await post('alice',{...body,title:''})).status,400);
  assert.equal(db.state.calls.length,0);
+ for(const date of [undefined,null,'','2099-02-30','2020-01-01'])assert.equal((await post('alice',{...body,expected_completion_date:date})).status,400);
+ assert.equal(db.state.projects.length,0);
  assert.equal((await post('alice',{...body,problem_id:999})).status,404);
  assert.equal((await post('carol',body)).status,403);
  db.state.plans.push(['alice',35,'difficult']);
@@ -52,7 +56,7 @@ test('POST /projects status codes and single adoption',async t=>{
 
  const created=await post('alice',body);assert.equal(created.status,201);
  const project=await created.json();
- assert.equal(project.id,5);assert.equal(project.can_edit,true);assert.equal(project.owner_id,undefined);assert.deepEqual(project.problem_ids,[34]);
+ assert.equal(project.expected_completion_date,'2099-12-31');assert.equal(db.state.projects[0].expected_completion_date,'2099-12-31');assert.equal(project.id,5);assert.equal(project.can_edit,true);assert.equal(project.owner_id,undefined);assert.deepEqual(project.problem_ids,[34]);
  const duplicate=await post('alice',body);assert.equal(duplicate.status,409);assert.equal((await duplicate.json()).project.id,project.id);assert.equal(db.state.projects.length,1);
  const second=await post('bob',body);assert.equal(second.status,201);
  const bobProject=await second.json();

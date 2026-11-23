@@ -74,7 +74,9 @@ function createProjectsRouter(db) {
   if(!draft)return res.status(400).json({error:`입력값을 확인해주세요. 제목 ${TITLE_MAX}자, 설명 ${DESCRIPTION_MAX}자 이내이고 기능은 최대 ${FEATURES_MAX}개, 항목당 ${FEATURE_MAX}자까지 입력할 수 있어요.`});
     // 선택 필드: 완료 예정일·기준일 (둘 다 없으면 일정 없이 등록)
   const body=req.body||{};
-  const wantsSchedule=body.expected_completion_date!=null;
+  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  if(!isCalendarDate(body.expected_completion_date)||body.expected_completion_date<today)return res.status(400).json({error:'개발 완료 예정일은 필수예요. 오늘 또는 이후 날짜로 선택해주세요.'});
+  const wantsSchedule=true;
   if(body.release_status!==undefined&&!statuses.includes(body.release_status))return res.status(400).json({error:'프로젝트 상태를 확인해주세요.'});
   if(body.release_status===statuses[3]&&!safeUrl(body.deployment_url))return res.status(400).json({error:'운영 중인 서비스 주소를 입력해주세요.'});
   const schedule=wantsSchedule&&isCalendarDate(body.expected_completion_date)?{expected_completion_date:body.expected_completion_date}:null;
