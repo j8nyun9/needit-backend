@@ -83,6 +83,10 @@ function createProjectsRouter(db) {
   // Plan ownership, project insert and problem link are checked/written in one DB transaction.
   const {data,error}=await db.rpc('create_project_from_problem',{p_user_id:req.user.id,p_problem_id:draft.problemId,p_title:draft.title,p_description:draft.description,p_features:draft.features});
   if(error){console.error('Project adoption failed:',error.code||'DB_ERROR');return res.status(503).json({error:'프로젝트를 등록하지 못했어요. 잠시 후 다시 시도해주세요. 계속되면 프로젝트 채택 DB 설정을 확인해주세요.'});}
+  if(data?.status==='already_exists'&&data.project){
+   const [existing]=await decorate([data.project],req.user);
+   return res.status(409).json({error:'이미 채택한 불편함이에요. 내 프로젝트를 확인해주세요.',project:{...existing,problem_ids:[draft.problemId]}});
+  }
   if(data?.status==='not_found')return res.status(404).json({error:'원본 불편함을 찾을 수 없어요.'});
   if(data?.status==='forbidden')return res.status(403).json({error:'이 불편함에 대한 내 AI 기획안이 있어야 프로젝트를 등록할 수 있어요.'});
   if(data?.status!=='created'||!data.project)return res.status(503).json({error:'등록 결과를 확인하지 못했어요. 프로젝트 목록을 다시 불러와 확인해주세요.'});

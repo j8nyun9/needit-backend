@@ -1,3 +1,4 @@
+const {createEditCommentHandler}=require('../services/commentEditing');
 const express = require("express");
 const supabase = require("../config/supabase");
 const { generatePlan } = require("../services/aiPlanner");
@@ -403,6 +404,7 @@ function toComment(row, userId) {
   const { author_id, ...comment } = row;
   return {
     ...comment,
+    can_edit: Boolean(userId && author_id && String(author_id) === String(userId)),
     can_delete: Boolean(userId && author_id && String(author_id) === String(userId))
   };
 }
@@ -503,5 +505,6 @@ router.delete("/:id/comments/:commentId", async (req, res) => {
   }
 });
 
+router.patch('/:id/comments/:commentId',createEditCommentHandler(supabase,COMMENT_MAX));
 router.delete('/:id',createDeleteProblemHandler(supabase));
 module.exports = router;

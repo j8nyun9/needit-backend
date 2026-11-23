@@ -11,6 +11,8 @@ function mockDb(){
   rpc(name,args){state.calls.push(name);
    if(!state.problems.includes(args.p_problem_id))return Promise.resolve({data:{status:'not_found'},error:null});
    if(!state.plans.some(([u,p])=>u===args.p_user_id&&p===args.p_problem_id))return Promise.resolve({data:{status:'forbidden'},error:null});
+   const existing=state.projects.find(p=>p.owner_id===args.p_user_id&&state.links.some(l=>l.project_id===p.id&&l.problem_id===args.p_problem_id));
+   if(existing)return Promise.resolve({data:{status:'already_exists',project:existing},error:null});
    const project={id:state.projects.length+5,title:args.p_title,description:args.p_description,features:args.p_features,owner_id:args.p_user_id,release_status:'기획 중'};
    state.projects.push(project);state.links.push({project_id:project.id,problem_id:args.p_problem_id});
    return Promise.resolve({data:{status:'created',project},error:null});
@@ -41,6 +43,7 @@ test('POST /projects status codes and single adoption',async t=>{
  const created=await post('alice',body);assert.equal(created.status,201);
  const project=await created.json();
  assert.equal(project.id,5);assert.equal(project.can_edit,true);assert.equal(project.owner_id,undefined);assert.deepEqual(project.problem_ids,[34]);
+ const duplicate=await post('alice',body);assert.equal(duplicate.status,409);assert.equal((await duplicate.json()).project.id,project.id);assert.equal(db.state.projects.length,1);
  const second=await post('bob',body);assert.equal(second.status,201);
  const bobProject=await second.json();
  assert.notEqual(bobProject.id,project.id);assert.equal(bobProject.can_edit,true);

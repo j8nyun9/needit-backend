@@ -9,23 +9,23 @@ create or replace function public.delete_own_problem(p_problem_id bigint,p_user_
 returns text
 language plpgsql
 security definer
-set search_path = ''
+set search_path = pg_catalog, public, pg_temp
 as $$
 declare
   stored_author uuid;
+  child_table text;
 begin
   select author_id into stored_author from public.problems where id=p_problem_id for update;
   if not found then return 'not_found'; end if;
   if p_user_id is null or stored_author is distinct from p_user_id then return 'forbidden'; end if;
 
-  -- Remove links and feedback for this issue; the projects themselves stay intact.
-  delete from public.project_problems where problem_id=p_problem_id;
-  delete from public.comments where problem_id=p_problem_id;
-  delete from public.empathies where problem_id=p_problem_id;
-  -- The personal-plan table may not yet be installed in an older environment.
-  if pg_catalog.to_regclass('public.problem_ai_plans') is not null then
-    execute 'delete from public.problem_ai_plans where problem_id=$1' using p_problem_id;
-  end if;
+  -- Skip optional tables that are not installed; keep project records intact.
+  foreach child_table in array array['project_problems','comments','empathies','problem_ai_plans']
+  loop
+    if pg_catalog.to_regclass('public.' || child_table) is not null then
+      execute pg_catalog.format('delete from public.%I where problem_id=$1',child_table) using p_problem_id;
+    end if;
+  end loop;
   delete from public.problems where id=p_problem_id and author_id=p_user_id;
   return 'deleted';
 end;

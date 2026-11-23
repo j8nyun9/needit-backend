@@ -23,3 +23,11 @@ test('delete API checks login, uses verified identity and reports failures witho
  assert.equal((await del(7,'alice')).status,204);assert.equal(exists,false);
  assert.equal((await del(7,'alice')).status,404);
 });
+test('DB errors include a safe diagnostic code without exposing internal details',async()=>{
+ for(const [code,status]of [['PGRST202',503],['42P01',503],['PGRST203',503],['23503',409],['42501',503]]){
+  let responseStatus,body;
+  const handler=createDeleteProblemHandler({rpc:async()=>({error:{code,message:'private database detail'}})});
+  await handler({user:{id:'alice'},params:{id:'7'}},{status(value){responseStatus=value;return this;},json(value){body=value;return this;}});
+  assert.equal(responseStatus,status);assert.equal(body.code,code);assert.ok(body.error.includes(code));assert.ok(!body.error.includes('private database detail'));
+ }
+});
