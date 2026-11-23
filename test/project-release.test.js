@@ -38,6 +38,20 @@ test('release ownership, persisted feedback/favorites and per-user launch notifi
  assert.equal(db.tables.projects[0].release_status,'테스트 중');
  assert.equal((await request('/1','alice','PATCH',{expected_completion_date:null})).status,200);
  assert.equal(db.tables.projects[0].expected_completion_date,null);
+ assert.equal((await request('/1',null,'PATCH',{description:'New introduction'})).status,401);
+ assert.equal((await request('/1','bob','PATCH',{description:'New introduction'})).status,403);
+ assert.equal((await request('/1','alice','PATCH',{description:' '})).status,400);
+ assert.equal((await request('/1','alice','PATCH',{description:'x'.repeat(5001)})).status,400);
+ const intro=await request('/1','alice','PATCH',{description:'  New introduction  '});assert.equal(intro.status,200);assert.equal((await intro.json()).description,'New introduction');assert.equal(db.tables.projects[0].description,'New introduction');
+
+ const section={description:'Full introduction',usage_guide:'  Open the app  ',features:['  Search  ','Alerts']};
+ assert.equal((await request('/1','bob','PATCH',section)).status,403);
+ assert.equal((await request('/1','alice','PATCH',{usage_guide:'x'.repeat(5001)})).status,400);
+ for(const features of ['bad',[123],[' '],['x'.repeat(501)],Array(31).fill('A')])assert.equal((await request('/1','alice','PATCH',{features})).status,400);
+ const sectionResponse=await request('/1','alice','PATCH',section);assert.equal(sectionResponse.status,200);
+ const sectionSaved=await sectionResponse.json();assert.equal(sectionSaved.description,section.description);assert.equal(sectionSaved.usage_guide,'Open the app');assert.deepEqual(sectionSaved.features,['Search','Alerts']);
+ const sectionReloaded=await (await request('/1','alice')).json();assert.deepEqual(sectionReloaded.features,['Search','Alerts']);assert.equal(sectionReloaded.usage_guide,'Open the app');
+ assert.equal((await request('/1','alice','PATCH',{usage_guide:'',features:[]})).status,200);
  const publication={release_status:'서비스 운영 중',deployment_url:'https://example.com',usage_guide:'Open and search'};
  assert.equal((await request('/1',null,'PUT',publication)).status,401);
  assert.equal((await request('/1','bob','PUT',publication)).status,403);

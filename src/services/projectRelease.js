@@ -190,6 +190,19 @@ function createProjectsRouter(db) {
   const p = await project(req.params.id); if (!p) return res.sendStatus(404);
   if (p.owner_id !== req.user.id) return res.status(403).json({ error: '프로젝트 담당자만 수정할 수 있어요.' });
   const body = req.body || {}; const patch = {};
+  if ('description' in body) {
+   if(typeof body.description!=='string'||!body.description.trim()||body.description.trim().length>5000)return res.status(400).json({error:'프로젝트 소개는 1~5,000자로 입력해주세요.'});
+   patch.description=body.description.trim();
+  }
+
+  if ('usage_guide' in body) {
+   if(typeof body.usage_guide!=='string'||body.usage_guide.length>5000)return res.status(400).json({error:'사용 방법은 최대 5,000자로 입력해주세요.'});
+   patch.usage_guide=body.usage_guide.trim();
+  }
+  if ('features' in body) {
+   if(!Array.isArray(body.features)||body.features.length>30||body.features.some(f=>typeof f!=='string'||!f.trim()||f.trim().length>500))return res.status(400).json({error:'주요 기능은 최대 30개, 각 1~500자로 입력해주세요.'});
+   patch.features=body.features.map(f=>f.trim());
+  }
   if ('expected_completion_date' in body) {
     if(body.expected_completion_date!==null&&!isCalendarDate(body.expected_completion_date))return res.status(400).json({error:'올바른 개발 완료 예정일을 선택해주세요.'});
     patch.expected_completion_date=body.expected_completion_date;
