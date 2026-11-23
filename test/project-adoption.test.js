@@ -17,7 +17,11 @@ function mockDb(){
    state.projects.push(project);state.links.push({project_id:project.id,problem_id:args.p_problem_id});
    return Promise.resolve({data:{status:'created',project},error:null});
   },
-  from(){const q={select:()=>q,eq:()=>q,then:(r,j)=>Promise.resolve({data:[],error:null}).then(r,j)};return q;}};
+  from(table){const filters={};let single=false;const q={select:()=>q,eq:(key,value)=>{filters[key]=value;return q;},maybeSingle:()=>{single=true;return q;},then:(resolve,reject)=>{
+   const saved=state.plans.find(([user,id])=>user===filters.user_id&&id===filters.problem_id);
+   const data=table==='problem_ai_plans'?(saved?{ai_plan:{swCategory:saved[2]||'direct'}}:null):[];
+   return Promise.resolve({data,error:null}).then(resolve,reject);
+  }};return q;}};
 }
 
 test('adoption payload validation',()=>{
@@ -40,6 +44,12 @@ test('POST /projects status codes and single adoption',async t=>{
  assert.equal(db.state.calls.length,0);
  assert.equal((await post('alice',{...body,problem_id:999})).status,404);
  assert.equal((await post('carol',body)).status,403);
+ db.state.plans.push(['alice',35,'difficult']);
+ const callsBefore=db.state.calls.length;
+ const blocked=await post('alice',{...body,problem_id:35});assert.equal(blocked.status,403);
+ assert.equal(db.state.calls.length,callsBefore);assert.equal(db.state.projects.length,0);
+ db.state.plans.find(([user,id])=>user==='bob'&&id===34)[2]='partial';
+
  const created=await post('alice',body);assert.equal(created.status,201);
  const project=await created.json();
  assert.equal(project.id,5);assert.equal(project.can_edit,true);assert.equal(project.owner_id,undefined);assert.deepEqual(project.problem_ids,[34]);

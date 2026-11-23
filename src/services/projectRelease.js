@@ -80,6 +80,8 @@ function createProjectsRouter(db) {
   const schedule=wantsSchedule&&isCalendarDate(body.expected_completion_date)?{expected_completion_date:body.expected_completion_date}:null;
   if(wantsSchedule&&!schedule)return res.status(400).json({error:'날짜는 YYYY-MM-DD 형식이고, 완료 예정일은 기준일과 같거나 이후여야 해요.'});
 
+  const personalPlan=await result(db.from('problem_ai_plans').select('ai_plan').eq('user_id',req.user.id).eq('problem_id',draft.problemId).maybeSingle());
+  if(personalPlan?.ai_plan?.swCategory==='difficult')return res.status(403).json({error:'소프트웨어만으로 해결하기 어려운 불편함은 프로젝트로 채택할 수 없어요.'});
   // Plan ownership, project insert and problem link are checked/written in one DB transaction.
   const {data,error}=await db.rpc('create_project_from_problem',{p_user_id:req.user.id,p_problem_id:draft.problemId,p_title:draft.title,p_description:draft.description,p_features:draft.features});
   if(error){console.error('Project adoption failed:',error.code||'DB_ERROR');return res.status(503).json({error:'프로젝트를 등록하지 못했어요. 잠시 후 다시 시도해주세요. 계속되면 프로젝트 채택 DB 설정을 확인해주세요.'});}
