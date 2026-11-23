@@ -109,4 +109,12 @@ test('release ownership, persisted feedback/favorites and per-user launch notifi
  const republished=await request('/'+created.id,'alice','PUT',{...publication,deployment_url:created.deployment_url});assert.equal(republished.status,200);
  assert.ok((await (await request('/notifications','bob')).json()).some(p=>p.id===created.id&&!p.read));
  assert.equal((await request('/bad-id')).status,400);assert.equal((await request('/999')).status,404);
+ assert.equal((await request('/'+created.id,null,'DELETE')).status,401);
+ assert.equal((await request('/'+created.id,'bob','DELETE')).status,403);
+ assert.ok(db.tables.projects.some(p=>p.id===created.id));
+ assert.equal((await request('/'+created.id,'alice','DELETE')).status,204);
+ assert.ok(!db.tables.projects.some(p=>p.id===created.id));
+ assert.ok(db.tables.projects.some(p=>p.id===1));
+ assert.equal((await request('/'+created.id,'alice','DELETE')).status,404);
+
 });

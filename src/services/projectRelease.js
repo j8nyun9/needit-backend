@@ -146,6 +146,17 @@ function createProjectsRouter(db) {
 
   res.json({...((await decorate([p],req.user))[0]),related_problems:links.map(l=>l.problems).filter(Boolean),feedback});
  }catch(e){next(e);}});
+ router.delete('/:id',login,async(req,res,next)=>{try{
+  const p=await project(req.params.id);
+  if(!p)return res.status(404).json({error:'프로젝트를 찾을 수 없어요.'});
+  if(p.owner_id!==req.user.id)return res.status(403).json({error:'본인이 만든 프로젝트만 삭제할 수 있어요.'});
+  const deleted=await result(db.from('projects').delete().eq('id',p.id).eq('owner_id',req.user.id).select('id').maybeSingle());
+  if(!deleted)return res.status(404).json({error:'삭제할 프로젝트를 찾을 수 없어요.'});
+  res.sendStatus(204);
+ }catch(e){
+  if(e.code==='23503')return res.status(503).json({error:'프로젝트 삭제 DB 설정을 확인해주세요. 연결 데이터 삭제 설정이 필요해요.'});
+  next(e);
+ }});
  router.put('/:id',login,async(req,res,next)=>{try{
   const p=await project(req.params.id);if(!p)return res.sendStatus(404);
   if(p.owner_id!==req.user.id)return res.status(403).json({error:'프로젝트 담당자만 수정할 수 있어요.'});
